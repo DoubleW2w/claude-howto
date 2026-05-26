@@ -1,0 +1,70 @@
+modules:
+  - order: 1
+    title: "Slash Commands"
+    folder: "01-slash-commands"
+    level: "beginner"
+    time: "30 min"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/slash-commands"
+
+  - order: 2
+    title: "Memory"
+    folder: "02-memory"
+    level: "beginner+"
+    time: "45 min"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/memory"
+
+  - order: 3
+    title: "Checkpoints"
+    folder: "08-checkpoints"
+    level: "intermediate"
+    time: "45 min"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/checkpoints"
+
+  - order: 4
+    title: "CLI Reference"
+    folder: "10-cli"
+    level: "beginner+"
+    time: "30 min"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/cli-reference"
+
+  - order: 5
+    title: "Skills"
+    folder: "03-skills"
+    level: "intermediate"
+    time: "1 hour"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/skills"
+
+  - order: 6
+    title: "Hooks"
+    folder: "06-hooks"
+    level: "intermediate"
+    time: "1 hour"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/hooks"
+
+  - order: 7
+    title: "MCP"
+    folder: "05-mcp"
+    level: "intermediate+"
+    time: "1 hour"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/mcp"
+
+  - order: 8
+    title: "Subagents"
+    folder: "04-subagents"
+    level: "intermediate+"
+    time: "1.5 hours"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/subagents"
+
+  - order: 9
+    title: "Advanced Features"
+    folder: "09-advanced-features"
+    level: "advanced"
+    time: "2-3 hours"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/advanced-features"
+
+  - order: 10
+    title: "Plugins"
+    folder: "07-plugins"
+    level: "advanced"
+    time: "2 hours"
+    doc_link: "https://docs.anthropic.com/en/docs/claude-code/plugins"

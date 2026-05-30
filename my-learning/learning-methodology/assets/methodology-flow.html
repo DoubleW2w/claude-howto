@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Methodology Flow</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0e14;
+    --bg-elevated: #111620;
+    --bg-card: #161c26;
+    --border: #1e2632;
+    --border-active: #2a3444;
+    --text-primary: #c9d1d9;
+    --text-secondary: #6e7681;
+    --text-muted: #3a404b;
+    --divider: #1a202c;
+
+    --step1: #60a5fa;
+    --step1-glow: rgba(96, 165, 250, 0.25);
+    --step1-dim: rgba(96, 165, 250, 0.08);
+    --step2: #34d399;
+    --step2-glow: rgba(52, 211, 153, 0.25);
+    --step2-dim: rgba(52, 211, 153, 0.08);
+    --step3: #fbbf24;
+    --step3-glow: rgba(251, 191, 36, 0.35);
+    --step3-dim: rgba(251, 191, 36, 0.12);
+    --step4: #f87171;
+    --step4-glow: rgba(248, 113, 113, 0.25);
+    --step4-dim: rgba(248, 113, 113, 0.08);
+    --diamond: #a78bfa;
+    --diamond-glow: rgba(167, 139, 250, 0.25);
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    --font-mono: "SF Mono", "Cascadia Code", "Consolas", "Fira Code", "Source Code Pro", "JetBrains Mono", monospace;
+  }
+
+  html { scroll-behavior: smooth; height: 100%; }
+  body {
+    min-height: 100%;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(20, 26, 38, 0.6) 0%, transparent 60%),
+      radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+    background-size: 100% 100%, 32px 32px;
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 56px 24px 120px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 16px;
+    animation: fadeInDown 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  header h1 {
+    font-size: clamp(1.4rem, 2.8vw, 1.85rem);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  header .subtitle {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    font-weight: 400;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 48px;
+    animation: fadeInDown 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) 0.15s both;
+  }
+  .mode-toggle {
+    display: flex;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mode-btn {
+    padding: 7px 16px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+  }
+  .mode-btn.active {
+    background: var(--border-active);
+    color: var(--text-primary);
+  }
+  .mode-btn:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .step-counter {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    min-width: 64px;
+    text-align: center;
+    transition: color 0.3s ease;
+  }
+  .step-counter.active-counter {
+    color: var(--step3);
+  }
+
+  .next-btn {
+    padding: 7px 18px;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-primary);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    display: none;
+  }
+  .next-btn.visible { display: inline-block; }
+  .next-btn:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-active);
+  }
+  .next-btn:active { transform: scale(0.97); }
+  .next-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ── Flow Container ── */
+  .flow {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* ── Central Spine ── */
+  .spine {
+    position: absolute;
+    left: 40px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      var(--divider) 8%,
+      var(--border) 30%,
+      var(--border) 70%,
+      var(--divider) 92%,
+      transparent 100%
+    );
+    z-index: 0;
+  }
+
+  /* ── Step Node ── */
+  .step {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 32px 0;
+    z-index: 1;
+  }
+
+  /* ── Step Marker (numbered circle on spine) ── */
+  .step-marker {
+    position: relative;
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-left: 20px;
+    margin-right: 28px;
+    margin-top: 12px;
+    transition:
+      border-color 0.6s ease,
+      color 0.6s ease,
+      box-shadow 0.6s ease,
+      background 0.6s ease;
+  }
+
+  .step.revealed .step-marker {
+    border-color: var(--marker-color);
+    color: var(--marker-color);
+    background: var(--marker-dim);
+    box-shadow: 0 0 12px var(--marker-glow);
+  }
+
+  /* ── Step Card ── */
+  .step-card {
+    flex: 1;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 24px;
+    transition:
+      border-color 0.6s ease,
+      box-shadow 0.6s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .step.revealed .step-card {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Accent left-edge line that appears on reveal */
+  .step-card::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--marker-color);
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .step.revealed .step-card::before {
+    transform: scaleY(1);
+  }
+
+  /* Step 3 highlight glow */
+  .step.step-highlight.revealed .step-card {
+    box-shadow:
+      0 0 20px var(--step3-glow),
+      0 0 48px rgba(251, 191, 36, 0.08);
+  }
+
+  /* ── Step Header ── */
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .step-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity 0.6s ease, color 0.6s ease;
+    color: var(--text-secondary);
+  }
+  .step.revealed .step-icon { opacity: 0.85; color: var(--marker-color); }
+  .step-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--text-primary);
+  }
+  .step-brief {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    letter-spacing: 0.02em;
+    margin-top: 4px;
+  }
+
+  /* ── Expand Indicator ── */
+  .step-expand-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 10px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    transition: color 0.3s ease;
+  }
+  .step.revealed .step-expand-hint { color: var(--marker-color); }
+  .step-expand-arrow {
+    display: inline-block;
+    transition: transform 0.3s ease;
+  }
+  .step.expanded .step-expand-arrow { transform: rotate(180deg); }
+
+  /* ── Detail Panel ── */
+  .step-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .step.expanded .step-detail {
+    max-height: 320px;
+  }
+  .step-detail-inner {
+    padding-top: 14px;
+    border-top: 1px solid var(--divider);
+    margin-top: 12px;
+  }
+  .detail-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .detail-text {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    letter-spacing: 0.02em;
+  }
+  .detail-example {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 2px solid var(--marker-color);
+    border-radius: 0 3px 3px 0;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    letter-spacing: 0.03em;
+  }
+  .detail-example strong {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* ── Arrow Between Steps ── */
+  .step-arrow {
+    width: 100%;
+    height: 28px;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    padding-left: 40px;
+  }
+  .arrow-line {
+    position: absolute;
+    left: 39px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+    transition: background 0.8s ease;
+  }
+  .step-arrow.revealed .arrow-line {
+    background: var(--arrow-from);
+  }
+  .arrow-head {
+    position: absolute;
+    left: 38px;
+    bottom: -1px;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid var(--border);
+    transition: border-top-color 0.8s ease;
+  }
+  .step-arrow.revealed .arrow-head {
+    border-top-color: var(--arrow-to);
+  }
+
+  /* ── Termination Section ── */
+  .termination-section {
+    position: relative;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 0 0;
+    z-index: 1;
+  }
+
+  /* Diamond shape */
+  .diamond-wrapper {
+    position: relative;
+    z-index: 2;
+    width: 148px;
+    height: 148px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .diamond {
+    width: 104px;
+    height: 104px;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    transform: rotate(45deg);
+    transition:
+      border-color 0.6s ease,
+      box-shadow 0.6s ease;
+    position: absolute;
+  }
+  .diamond-wrapper.revealed .diamond {
+    border-color: var(--diamond);
+    box-shadow: 0 0 20px var(--diamond-glow);
+  }
+  .diamond-label {
+    position: relative;
+    z-index: 1;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+    text-align: center;
+    line-height: 1.3;
+    transition: color 0.6s ease;
+  }
+  .diamond-wrapper.revealed .diamond-label {
+    color: var(--diamond);
+  }
+
+  /* Yes / No branches */
+  .termination-branches {
+    display: flex;
+    gap: 80px;
+    margin-top: 24px;
+  }
+  .branch {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    padding: 8px 18px;
+    border-radius: 4px;
+    text-align: center;
+    transition: all 0.6s ease;
+  }
+  .branch-yes {
+    color: var(--text-muted);
+    border: 1px solid var(--divider);
+    background: transparent;
+  }
+  .branch-no {
+    color: var(--text-muted);
+    border: 1px solid var(--divider);
+    background: transparent;
+  }
+  .diamond-wrapper.revealed ~ .termination-branches .branch-yes {
+    color: var(--step2);
+    border-color: rgba(52, 211, 153, 0.3);
+    background: rgba(52, 211, 153, 0.06);
+  }
+  .diamond-wrapper.revealed ~ .termination-branches .branch-no {
+    color: var(--step4);
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(248, 113, 113, 0.06);
+  }
+  .diamond-wrapper.revealed ~ .termination-branches .branch-end {
+    color: var(--text-secondary);
+    border-color: var(--border);
+    background: var(--bg-card);
+  }
+
+  /* Return arrow SVG */
+  .return-arrow-svg {
+    position: absolute;
+    right: 8px;
+    top: -280px;
+    width: 120px;
+    height: 320px;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0;
+    transition: opacity 0.8s ease 0.4s;
+  }
+  .return-arrow-svg.revealed { opacity: 0.7; }
+  .return-arrow-path {
+    fill: none;
+    stroke: var(--step4);
+    stroke-width: 1.5;
+    stroke-dasharray: 6 4;
+    stroke-dashoffset: 0;
+  }
+  .return-arrow-path.animate {
+    animation: dashFlow 1.2s linear infinite;
+  }
+  @keyframes dashFlow {
+    to { stroke-dashoffset: -20; }
+  }
+
+  /* ── Initial hidden state for scroll-triggered reveal ── */
+  .step .step-card,
+  .step .step-marker,
+  .step .step-icon {
+    opacity: 0;
+    transform: translateY(18px);
+    transition:
+      opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1),
+      transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .step.revealed .step-card,
+  .step.revealed .step-marker,
+  .step.revealed .step-icon {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .step-arrow {
+    opacity: 0.2;
+    transition: opacity 0.6s ease 0.2s;
+  }
+  .step-arrow.revealed { opacity: 1; }
+
+  .diamond-wrapper {
+    opacity: 0;
+    transform: translateY(18px);
+    transition:
+      opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1),
+      transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .diamond-wrapper.revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .termination-branches .branch {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity 0.5s ease,
+      transform 0.5s ease;
+  }
+  .diamond-wrapper.revealed ~ .termination-branches .branch {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .diamond-wrapper.revealed ~ .termination-branches .branch:nth-child(1) { transition-delay: 0.15s; }
+  .diamond-wrapper.revealed ~ .termination-branches .branch:nth-child(2) { transition-delay: 0.25s; }
+
+  /* ── Return loop label ── */
+  .loop-label {
+    position: absolute;
+    right: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--step4);
+    letter-spacing: 0.05em;
+    opacity: 0;
+    transition: opacity 0.6s ease 0.5s;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+  .loop-label.revealed { opacity: 0.6; }
+
+  /* ── Keyframes ── */
+  @keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    body { padding: 36px 12px 80px; }
+    .controls { flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 36px; }
+    .mode-btn { padding: 6px 12px; font-size: 0.72rem; }
+
+    .spine { left: 28px; }
+    .step { padding: 24px 0; }
+    .step-marker {
+      width: 32px;
+      height: 32px;
+      font-size: 0.75rem;
+      margin-left: 12px;
+      margin-right: 16px;
+      margin-top: 10px;
+    }
+    .step-card { padding: 14px 16px; }
+    .step-title { font-size: 0.95rem; }
+    .step-brief { font-size: 0.8rem; }
+    .step-icon { width: 18px; height: 18px; }
+
+    .step-arrow { height: 22px; padding-left: 28px; }
+    .arrow-line { left: 27px; }
+    .arrow-head { left: 26px; }
+
+    .diamond-wrapper { width: 120px; height: 120px; }
+    .diamond { width: 80px; height: 80px; }
+    .diamond-label { font-size: 0.72rem; }
+    .termination-branches { gap: 32px; }
+    .branch { font-size: 0.72rem; padding: 6px 12px; }
+
+    .return-arrow-svg { right: 2px; top: -220px; width: 80px; height: 250px; }
+    .loop-label { right: 2px; font-size: 0.62rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Learning Methodology</h1>
+  <p class="subtitle">From Zero Knowledge to a Concise Core Document</p>
+</header>
+
+<div class="controls">
+  <div class="mode-toggle">
+    <button class="mode-btn active" data-mode="auto" id="modeAuto">自动播放</button>
+    <button class="mode-btn" data-mode="manual" id="modeManual">逐步浏览</button>
+  </div>
+  <span class="step-counter" id="stepCounter">第 1/4 步</span>
+  <button class="next-btn" id="nextBtn">下一步 &rarr;</button>
+</div>
+
+<div class="flow" id="flow">
+
+  <!-- Central Spine -->
+  <div class="spine" aria-hidden="true"></div>
+
+  <!-- Step 1 -->
+  <div class="step" data-step="1" style="--marker-color:var(--step1);--marker-glow:var(--step1-glow);--marker-dim:var(--step1-dim)">
+    <div class="step-marker">1</div>
+    <div class="step-card">
+      <div class="step-header">
+        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
+        </svg>
+        <span class="step-title">定位信息源</span>
+      </div>
+      <p class="step-brief">官方文档 &gt; 优质教程 &gt; 博客文章。最多 2-3 个来源</p>
+      <div class="step-expand-hint">
+        <span>Details</span>
+        <span class="step-expand-arrow">&#9660;</span>
+      </div>
+      <div class="step-detail">
+        <div class="step-detail-inner">
+          <div class="detail-label">Strategy</div>
+          <div class="detail-text">
+            筛选信息源时遵循优先级：官方文档最可靠，优质教程补充理解，博客文章提供实践经验。
+            严格控制来源数量（2-3 个），防止信息过载。对每个来源做可信度评估。
+          </div>
+          <div class="detail-example">
+            <strong>Checkpoints Example:</strong> 08-checkpoints/README.md + code.claude.com/docs/zh-CN/checkpointing
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow 1 -> 2 -->
+  <div class="step-arrow" style="--arrow-from:var(--step1);--arrow-to:var(--step2)" data-from="1" data-to="2">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="step" data-step="2" style="--marker-color:var(--step2);--marker-glow:var(--step2-glow);--marker-dim:var(--step2-dim)">
+    <div class="step-marker">2</div>
+    <div class="step-card">
+      <div class="step-header">
+        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="8" height="6" rx="1"/><rect x="14" y="3" width="8" height="6" rx="1"/>
+          <rect x="2" y="13" width="8" height="8" rx="1"/><rect x="14" y="13" width="8" height="8" rx="1"/>
+        </svg>
+        <span class="step-title">抓取骨骼</span>
+      </div>
+      <p class="step-brief">只看结构，不看正文。提取目录、核心概念(&le;10)、API 表、配置项</p>
+      <div class="step-expand-hint">
+        <span>Details</span>
+        <span class="step-expand-arrow">&#9660;</span>
+      </div>
+      <div class="step-detail">
+        <div class="step-detail-inner">
+          <div class="detail-label">Strategy</div>
+          <div class="detail-text">
+            快速扫描文档结构，跳过所有正文内容。聚焦提取：目录层级、核心概念列表（&le;10 个）、
+            API/方法签名表、配置项清单。目标是建立领域的骨架地图。
+          </div>
+          <div class="detail-example">
+            <strong>Checkpoints Example:</strong> 3 个核心概念 + 3 种入口 + 6 个选项 + 4 个场景 + 3 个限制<br>
+            = 19 个骨架节点
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow 2 -> 3 -->
+  <div class="step-arrow" style="--arrow-from:var(--step2);--arrow-to:var(--step3)" data-from="2" data-to="3">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- Step 3 (Highlighted: Pareto 80/20) -->
+  <div class="step step-highlight" data-step="3" style="--marker-color:var(--step3);--marker-glow:var(--step3-glow);--marker-dim:var(--step3-dim)">
+    <div class="step-marker">3</div>
+    <div class="step-card">
+      <div class="step-header">
+        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>
+          <line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>
+        <span class="step-title">提取核心</span>
+      </div>
+      <p class="step-brief">用二八法则筛出 4-6 张核心概念卡。判断：日常 80% 场景用得到吗？</p>
+      <div class="step-expand-hint">
+        <span>Details</span>
+        <span class="step-expand-arrow">&#9660;</span>
+      </div>
+      <div class="step-detail">
+        <div class="step-detail-inner">
+          <div class="detail-label">Pareto Principle &mdash; The Critical Filter</div>
+          <div class="detail-text">
+            对每个骨架节点做二八判断：这个知识点在 80% 的日常场景中出现吗？
+            筛出 4-6 张核心概念卡，其余标记为「用的时候再查」。
+            保留率约 20-30%，这是整个方法论中最重要的压缩步骤。
+          </div>
+          <div class="detail-example">
+            <strong>Checkpoints Example:</strong> 保留 4 张核心卡，其余标记「用的时候再查」<br>
+            保留率 ~25%（19 &rarr; 4）
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow 3 -> 4 -->
+  <div class="step-arrow" style="--arrow-from:var(--step3);--arrow-to:var(--step4)" data-from="3" data-to="4">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="step" data-step="4" style="--marker-color:var(--step4);--marker-glow:var(--step4-glow);--marker-dim:var(--step4-dim)">
+    <div class="step-marker">4</div>
+    <div class="step-card">
+      <div class="step-header">
+        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 9 12 3 18"/><line x1="9" y1="4" x2="21" y2="4"/>
+          <line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="20" x2="21" y2="20"/>
+        </svg>
+        <span class="step-title">去噪成文</span>
+      </div>
+      <p class="step-brief">砍掉评价性语言、重复解释、冗余示例。保留所有技术细节。如果已精炼，不再压缩</p>
+      <div class="step-expand-hint">
+        <span>Details</span>
+        <span class="step-expand-arrow">&#9660;</span>
+      </div>
+      <div class="step-detail">
+        <div class="step-detail-inner">
+          <div class="detail-label">Occam's Razor &mdash; Precision Editing</div>
+          <div class="detail-text">
+            逐句审查：删除评价性语言、重复解释、冗余示例。保留所有技术细节不动。
+            奥卡姆原则：如无必要，勿增实体。如果内容已经足够精炼，停止压缩。
+          </div>
+          <div class="detail-example">
+            <strong>Checkpoints Example:</strong> checkpoints/README.md<br>
+            最终产出：~600 字，5 个部分，精炼可查
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow 4 -> Termination -->
+  <div class="step-arrow" style="--arrow-from:var(--step4);--arrow-to:var(--diamond)" data-from="4" data-to="term">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- Termination Section -->
+  <div class="termination-section">
+    <div class="diamond-wrapper" data-step="term">
+      <div class="diamond"></div>
+      <span class="diamond-label">已足够<br>精炼？</span>
+    </div>
+
+    <!-- Return arrow SVG (curved feedback loop) -->
+    <svg class="return-arrow-svg" viewBox="0 0 120 320" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowhead" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+          <polygon points="0 0, 6 2.5, 0 5" fill="var(--step4)" />
+        </marker>
+      </defs>
+      <path class="return-arrow-path"
+        d="M 4 10
+           C 4 10, 100 10, 100 80
+           C 100 150, 4 150, 4 220
+           C 4 270, 80 270, 80 300"
+        marker-end="url(#arrowhead)" />
+    </svg>
+    <span class="loop-label" style="top: -140px;">No &mdash; 回到第三步</span>
+
+    <div class="termination-branches">
+      <span class="branch branch-yes">Yes &rarr; 终止，产出文档</span>
+      <span class="branch branch-no">No &rarr; 回到第三步</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var flow = document.getElementById('flow');
+  var steps = Array.from(flow.querySelectorAll('.step'));
+  var arrows = Array.from(flow.querySelectorAll('.step-arrow'));
+  var diamondWrapper = flow.querySelector('.diamond-wrapper');
+  var returnArrowSvg = flow.querySelector('.return-arrow-svg');
+  var returnArrowPath = flow.querySelector('.return-arrow-path');
+  var loopLabel = flow.querySelector('.loop-label');
+  var nextBtn = document.getElementById('nextBtn');
+  var stepCounter = document.getElementById('stepCounter');
+  var modeAuto = document.getElementById('modeAuto');
+  var modeManual = document.getElementById('modeManual');
+
+  var mode = 'auto'; // 'auto' | 'manual'
+  var currentStep = 0; // 0-indexed: 0..3 = steps, 4 = termination
+  var totalSteps = 4;
+
+  function updateCounter() {
+    if (currentStep >= totalSteps) {
+      stepCounter.textContent = '完成';
+      stepCounter.classList.add('active-counter');
+    } else if (currentStep > 0) {
+      stepCounter.textContent = '第 ' + currentStep + '/' + totalSteps + ' 步';
+      stepCounter.classList.add('active-counter');
+    } else {
+      stepCounter.textContent = '第 1/' + totalSteps + ' 步';
+      stepCounter.classList.remove('active-counter');
+    }
+  }
+
+  function revealStep(index) {
+    if (index < totalSteps) {
+      var step = steps[index];
+      if (step && !step.classList.contains('revealed')) {
+        step.classList.add('revealed');
+      }
+    }
+    // Reveal the arrow before this step (arrow i connects step i to i+1)
+    if (index >= 1 && index <= totalSteps) {
+      var arrow = arrows[index - 1];
+      if (arrow && !arrow.classList.contains('revealed')) {
+        arrow.classList.add('revealed');
+      }
+    }
+    // Reveal termination
+    if (index >= totalSteps) {
+      if (diamondWrapper && !diamondWrapper.classList.contains('revealed')) {
+        diamondWrapper.classList.add('revealed');
+      }
+      if (returnArrowSvg && !returnArrowSvg.classList.contains('revealed')) {
+        returnArrowSvg.classList.add('revealed');
+      }
+      if (returnArrowPath && !returnArrowPath.classList.contains('animate')) {
+        returnArrowPath.classList.add('animate');
+      }
+      if (loopLabel && !loopLabel.classList.contains('revealed')) {
+        loopLabel.classList.add('revealed');
+      }
+      // Also reveal the last arrow (4 -> termination)
+      var lastArrow = arrows[arrows.length - 1];
+      if (lastArrow && !lastArrow.classList.contains('revealed')) {
+        lastArrow.classList.add('revealed');
+      }
+    }
+    currentStep = index + 1;
+    if (currentStep > totalSteps + 1) currentStep = totalSteps + 1;
+    updateCounter();
+    updateNextBtn();
+  }
+
+  function updateNextBtn() {
+    if (mode === 'manual') {
+      if (currentStep >= totalSteps + 1) {
+        nextBtn.disabled = true;
+        nextBtn.textContent = '已完成';
+      } else {
+        nextBtn.disabled = false;
+        nextBtn.textContent = '下一步 →';
+      }
+    }
+  }
+
+  function advanceManual() {
+    if (mode !== 'manual') return;
+    if (currentStep > totalSteps) return; // already done
+    revealStep(currentStep);
+  }
+
+  // Intersection Observer for auto mode
+  var observerOptions = { threshold: 0.3, rootMargin: '0px 0px -40px 0px' };
+  var observer = new IntersectionObserver(function (entries) {
+    if (mode !== 'auto') return;
+    entries.forEach(function (entry) {
+      if (entry.isIntersecting) {
+        var stepEl = entry.target;
+        var stepIdx = parseInt(stepEl.dataset.step, 10) - 1;
+        revealStep(stepIdx);
+        observer.unobserve(stepEl);
+      }
+    });
+  }, observerOptions);
+
+  // Observe all steps
+  steps.forEach(function (step) {
+    observer.observe(step);
+  });
+
+  // Observe diamond
+  if (diamondWrapper) {
+    var diamondObserver = new IntersectionObserver(function (entries) {
+      if (mode !== 'auto') return;
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          revealStep(totalSteps);
+          diamondObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.4 });
+    diamondObserver.unobserve = diamondObserver.unobserve || function () {};
+    diamondObserver.observe(diamondWrapper);
+  }
+
+  // ── Mode Switching ──
+  function setMode(newMode) {
+    mode = newMode;
+    if (mode === 'auto') {
+      modeAuto.classList.add('active');
+      modeManual.classList.remove('active');
+      nextBtn.classList.remove('visible');
+      // Re-observe all steps
+      steps.forEach(function (s) { observer.observe(s); });
+      if (diamondWrapper) {
+        var dObs = new IntersectionObserver(function (entries) {
+          if (mode !== 'auto') return;
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) { revealStep(totalSteps); }
+          });
+        }, { threshold: 0.4 });
+        dObs.observe(diamondWrapper);
+      }
+    } else {
+      modeManual.classList.add('active');
+      modeAuto.classList.remove('active');
+      nextBtn.classList.add('visible');
+      updateNextBtn();
+    }
+  }
+
+  modeAuto.addEventListener('click', function () { if (mode !== 'auto') setMode('auto'); });
+  modeManual.addEventListener('click', function () { if (mode !== 'manual') setMode('manual'); });
+
+  nextBtn.addEventListener('click', advanceManual);
+
+  // ── Click to expand step detail ──
+  steps.forEach(function (step) {
+    var card = step.querySelector('.step-card');
+    card.addEventListener('click', function (e) {
+      // Don't toggle if clicking on already-expanded detail content
+      if (e.target.closest('.step-detail')) return;
+      step.classList.toggle('expanded');
+    });
+  });
+
+  // ── Keyboard navigation ──
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+      if (mode === 'manual') {
+        e.preventDefault();
+        advanceManual();
+      }
+    }
+  });
+
+  // ── Initial state ──
+  updateCounter();
+  updateNextBtn();
+
+  // Force initial scroll check in auto mode
+  if (mode === 'auto') {
+    setTimeout(function () {
+      // Check if any steps are already visible
+      steps.forEach(function (step) {
+        var rect = step.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.7 && rect.bottom > 0) {
+          var idx = parseInt(step.dataset.step, 10) - 1;
+          if (!step.classList.contains('revealed')) {
+            revealStep(idx);
+          }
+        }
+      });
+      if (diamondWrapper) {
+        var dRect = diamondWrapper.getBoundingClientRect();
+        if (dRect.top < window.innerHeight * 0.7 && dRect.bottom > 0) {
+          if (!diamondWrapper.classList.contains('revealed')) {
+            revealStep(totalSteps);
+          }
+        }
+      }
+    }, 300);
+  }
+
+  // Export for potential external control
+  window.methodologyFlow = {
+    revealStep: revealStep,
+    setMode: setMode,
+    getState: function () { return { mode: mode, currentStep: currentStep }; }
+  };
+})();
+</script>
+
+</body>
+</html>

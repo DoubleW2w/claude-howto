@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>二八法则 vs 奥卡姆剃刀</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0e14;
+    --bg-elevated: #141820;
+    --bg-card: #181d27;
+    --border: #212730;
+    --border-highlight: #2a3240;
+    --text-primary: #c9d1d9;
+    --text-secondary: #6e7681;
+    --text-muted: #3a3f4b;
+    --accent-pareto: #e6a840;
+    --accent-pareto-glow: rgba(230, 168, 64, 0.35);
+    --accent-occam: #d9536b;
+    --accent-occam-fade: rgba(217, 83, 107, 0.12);
+    --divider: #1a1f2a;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    --font-mono: "SF Mono", "Cascadia Code", "Consolas", "Fira Code", "Source Code Pro", monospace;
+  }
+
+  html { height: 100%; }
+  body {
+    min-height: 100%;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(22, 27, 37, 0.7) 0%, transparent 65%),
+      radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    background-size: 100% 100%, 28px 28px;
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 32px 32px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+    animation: fadeInDown 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  header h1 {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  header .subtitle {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    font-weight: 400;
+  }
+  header .subtitle .pareto-tint { color: var(--accent-pareto); }
+  header .subtitle .occam-tint { color: var(--accent-occam); }
+
+  /* ── Main Layout ── */
+  main {
+    display: flex;
+    gap: 0;
+    width: 100%;
+    max-width: 1100px;
+    flex: 1;
+    align-items: stretch;
+    min-height: 480px;
+  }
+
+  .section-pareto, .section-occam {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 24px 16px 48px;
+  }
+
+  .divider-v {
+    width: 1px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      var(--divider) 15%,
+      var(--border) 50%,
+      var(--divider) 85%,
+      transparent 100%
+    );
+    flex-shrink: 0;
+  }
+
+  /* ── Card Container ── */
+  .cards-stage {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    height: 380px;
+  }
+
+  .card {
+    position: absolute;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translate(var(--tx, 0px), var(--ty, 0px)) rotate(var(--rot, 0deg)) scale(0.92);
+    transition:
+      opacity 0.55s cubic-bezier(0.22, 0.61, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
+      border-color 0.7s ease,
+      box-shadow 0.7s ease,
+      color 0.7s ease,
+      z-index 0.01s;
+    z-index: 1;
+    cursor: default;
+    user-select: none;
+  }
+
+  .card.visible {
+    opacity: 1;
+    transform: translate(var(--tx, 0px), var(--ty, 0px)) rotate(var(--rot, 0deg)) scale(1);
+  }
+
+  .card.important {
+    border-color: var(--border-highlight);
+    color: var(--text-primary);
+    font-weight: 600;
+    z-index: 2;
+  }
+
+  .card.dimmed {
+    opacity: 0.1;
+    transition:
+      opacity 0.8s cubic-bezier(0.22, 0.61, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 0.61, 0.36, 1),
+      border-color 0.7s ease,
+      box-shadow 0.7s ease,
+      color 0.7s ease;
+  }
+
+  .card.highlighted {
+    z-index: 10;
+    border-color: var(--accent-pareto);
+    color: var(--accent-pareto);
+    transform: translate(var(--tx, 0px), var(--ty, 0px)) rotate(0deg) scale(1.18);
+    box-shadow:
+      0 0 18px var(--accent-pareto-glow),
+      0 0 36px rgba(230, 168, 64, 0.18),
+      0 0 64px rgba(230, 168, 64, 0.08);
+    font-weight: 700;
+  }
+
+  /* ── Section Labels ── */
+  .section-label {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    opacity: 0;
+    transition: opacity 0.6s ease, color 0.6s ease;
+    white-space: nowrap;
+  }
+  .section-label.visible { opacity: 1; }
+  .section-label.pareto-label { color: var(--accent-pareto); }
+
+  /* ── Occam Text ── */
+  .text-block {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .text-line {
+    position: relative;
+    font-size: 0.88rem;
+    line-height: 1.65;
+    color: var(--text-secondary);
+    padding: 2px 0;
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 0.5s cubic-bezier(0.22, 0.61, 0.36, 1),
+      transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1),
+      color 0.7s ease;
+    letter-spacing: 0.02em;
+  }
+  .text-line.fluff { color: var(--text-secondary); }
+
+  .text-line.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .text-line.struck {
+    color: var(--accent-occam);
+  }
+  .text-line.struck::after {
+    content: "";
+    position: absolute;
+    left: -4px;
+    right: -4px;
+    top: 50%;
+    height: 2px;
+    background: var(--accent-occam);
+    border-radius: 1px;
+    transform: translateY(-50%) scaleX(0);
+    transform-origin: left center;
+    animation: drawStrike 0.55s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+    opacity: 0.85;
+  }
+  .text-line.faded {
+    opacity: 0.13;
+    color: var(--text-muted);
+    transition:
+      opacity 0.7s ease 0.3s,
+      color 0.7s ease 0.3s;
+  }
+
+  .text-line.core-line.visible {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* ── Replay Button ── */
+  .replay-btn {
+    margin-top: 40px;
+    padding: 8px 24px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition:
+      background 0.25s ease,
+      border-color 0.25s ease,
+      color 0.25s ease;
+    opacity: 0;
+    animation: fadeIn 0.5s ease 3.8s forwards;
+  }
+  .replay-btn:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-highlight);
+    color: var(--text-primary);
+  }
+  .replay-btn:active {
+    transform: scale(0.97);
+    transition: transform 0.1s ease;
+  }
+
+  /* ── Keyframes ── */
+  @keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes drawStrike {
+    from { transform: translateY(-50%) scaleX(0); }
+    to   { transform: translateY(-50%) scaleX(1); }
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    body { padding: 32px 20px 24px; }
+    header { margin-bottom: 32px; }
+
+    main {
+      flex-direction: column;
+      gap: 32px;
+      min-height: auto;
+    }
+    .divider-v {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(
+        to right,
+        transparent 0%,
+        var(--divider) 15%,
+        var(--border) 50%,
+        var(--divider) 85%,
+        transparent 100%
+      );
+    }
+    .section-pareto, .section-occam {
+      padding: 12px 8px 40px;
+    }
+    .cards-stage {
+      height: 300px;
+      max-width: 100%;
+    }
+    .card { font-size: 0.74rem; padding: 6px 10px; }
+    .text-line { font-size: 0.82rem; }
+  }
+
+  @media (max-width: 480px) {
+    body { padding: 24px 12px 20px; }
+    header h1 { font-size: 1.3rem; }
+    .cards-stage { height: 260px; }
+    .card { font-size: 0.7rem; padding: 5px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>二八法则 vs 奥卡姆剃刀</h1>
+  <p class="subtitle">
+    <span class="pareto-tint">一个找重点</span>
+    ，
+    <span class="occam-tint">一个砍废话</span>
+  </p>
+</header>
+
+<main>
+  <!-- ── Pareto: Card Scatter ── -->
+  <section class="section-pareto">
+    <div class="cards-stage" id="cardsStage">
+      <div class="card important" style="left:34%;top:18%;--tx:3px;--ty:-2px;--rot:-1.5deg;" data-idx="0">核心概念</div>
+      <div class="card important" style="left:34%;top:46%;--tx:-2px;--ty:4px;--rot:1deg;"   data-idx="1">常用命令</div>
+      <div class="card"           style="left:3%;top:8%;--tx:-6px;--ty:-4px;--rot:-3deg;"   data-idx="2">进阶配置</div>
+      <div class="card"           style="left:3%;top:36%;--tx:-4px;--ty:6px;--rot:2.5deg;"   data-idx="3">历史背景</div>
+      <div class="card"           style="left:3%;top:64%;--tx:-8px;--ty:-2px;--rot:-2deg;"   data-idx="4">底层原理</div>
+      <div class="card"           style="left:62%;top:8%;--tx:5px;--ty:-3px;--rot:2.5deg;"   data-idx="5">性能优化</div>
+      <div class="card"           style="left:62%;top:36%;--tx:7px;--ty:5px;--rot:-1.5deg;"  data-idx="6">边缘场景</div>
+      <div class="card"           style="left:62%;top:64%;--tx:4px;--ty:-8px;--rot:1deg;"    data-idx="7">版本差异</div>
+      <div class="card"           style="left:3%;top:92%;--tx:-3px;--ty:2px;--rot:3deg;"     data-idx="8">社区生态</div>
+      <div class="card"           style="left:62%;top:92%;--tx:6px;--ty:-4px;--rot:-2.5deg;" data-idx="9">扩展插件</div>
+    </div>
+    <span class="section-label pareto-label" id="paretoLabel">20% 的知识 &#8594; 80% 的使用场景</span>
+  </section>
+
+  <!-- ── Divider ── -->
+  <div class="divider-v" aria-hidden="true"></div>
+
+  <!-- ── Occam: Text Razor ── -->
+  <section class="section-occam">
+    <div class="text-block" id="textBlock">
+      <div class="text-line fluff" data-fluff="true">在学习 React 框架时，你可能会发现网上有</div>
+      <div class="text-line fluff" data-fluff="true">大量的教程和文档，从官方文档到个人博客，</div>
+      <div class="text-line fluff" data-fluff="true">从视频课程到付费书籍，信息量非常庞大，</div>
+      <div class="text-line fluff" data-fluff="true">很多初学者常常会感到不知所措。</div>
+      <div class="text-line core-line">实际上，你完全不需要一开始就掌握所有内容。</div>
+      <div class="text-line core-line">你只需要先理解 JSX 语法、组件的基本写法、</div>
+      <div class="text-line core-line">以及 useState 这个最常用的 Hook，</div>
+      <div class="text-line core-line">就可以开始动手写项目了。遇到具体问题时</div>
+      <div class="text-line core-line">再查阅对应文档，学习效率反而更高。</div>
+    </div>
+    <span class="section-label" id="occamLabel" style="color:var(--accent-occam);">如无必要，勿增实体</span>
+  </section>
+</main>
+
+<button class="replay-btn" id="replayBtn">&#x21BA; 重新演示</button>
+
+<script>
+(function () {
+  var cardsStage = document.getElementById('cardsStage');
+  var cards = Array.from(cardsStage.querySelectorAll('.card'));
+  var paretoLabel = document.getElementById('paretoLabel');
+  var textBlock = document.getElementById('textBlock');
+  var textLines = Array.from(textBlock.querySelectorAll('.text-line'));
+  var occamLabel = document.getElementById('occamLabel');
+  var replayBtn = document.getElementById('replayBtn');
+
+  var importantCards = cards.filter(function (c) { return c.classList.contains('important'); });
+  var normalCards = cards.filter(function (c) { return !c.classList.contains('important'); });
+  var fluffLines = textLines.filter(function (l) { return l.dataset.fluff === 'true'; });
+  var coreLines = textLines.filter(function (l) { return l.dataset.fluff !== 'true'; });
+
+  var timers = [];
+
+  function clearAllTimers() {
+    timers.forEach(function (t) { clearTimeout(t); });
+    timers = [];
+  }
+
+  function removeClasses() {
+    cards.forEach(function (c) {
+      c.classList.remove('visible', 'dimmed', 'highlighted');
+    });
+    textLines.forEach(function (l) {
+      l.classList.remove('visible', 'struck', 'faded');
+    });
+    paretoLabel.classList.remove('visible');
+    occamLabel.classList.remove('visible');
+    replayBtn.style.animation = 'none';
+    replayBtn.style.opacity = '0';
+  }
+
+  function forceReflow() {
+    void cardsStage.offsetWidth;
+    void textBlock.offsetWidth;
+  }
+
+  function play() {
+    clearAllTimers();
+    removeClasses();
+    forceReflow();
+
+    // Phase 1: Cards appear with stagger (0ms - 600ms)
+    cards.forEach(function (card, i) {
+      var t = setTimeout(function () {
+        card.classList.add('visible');
+      }, i * 65);
+      timers.push(t);
+    });
+
+    // Phase 2: Text lines appear with stagger (300ms - 1100ms)
+    textLines.forEach(function (line, i) {
+      var t = setTimeout(function () {
+        line.classList.add('visible');
+        // Core lines get slightly stronger appearance
+        // Already handled by CSS .core-line.visible rules
+      }, 300 + i * 90);
+      timers.push(t);
+    });
+
+    // Phase 3: Pareto highlight — dim normal cards, glow important ones (1600ms)
+    var t1 = setTimeout(function () {
+      normalCards.forEach(function (c) { c.classList.add('dimmed'); });
+      importantCards.forEach(function (c, i) {
+        var t = setTimeout(function () {
+          c.classList.add('highlighted');
+        }, i * 120);
+        timers.push(t);
+      });
+    }, 1600);
+    timers.push(t1);
+
+    // Phase 4: Occam razor — strike through fluff (2200ms)
+    var t2 = setTimeout(function () {
+      fluffLines.forEach(function (line, i) {
+        var t = setTimeout(function () {
+          line.classList.add('struck');
+          // After strike animation completes, fade the line
+          var tf = setTimeout(function () {
+            line.classList.add('faded');
+          }, 600);
+          timers.push(tf);
+        }, i * 150);
+        timers.push(t);
+      });
+    }, 2200);
+    timers.push(t2);
+
+    // Phase 5: Show labels (3000ms)
+    var t3 = setTimeout(function () {
+      paretoLabel.classList.add('visible');
+    }, 3000);
+    timers.push(t3);
+
+    var t4 = setTimeout(function () {
+      occamLabel.classList.add('visible');
+    }, 3200);
+    timers.push(t4);
+
+    // Show replay button
+    var t5 = setTimeout(function () {
+      replayBtn.style.animation = 'fadeIn 0.5s ease forwards';
+      replayBtn.style.opacity = '1';
+    }, 3800);
+    timers.push(t5);
+  }
+
+  // Auto-play on load
+  setTimeout(play, 400);
+
+  // Replay button
+  replayBtn.addEventListener('click', function () {
+    play();
+  });
+})();
+</script>
+
+</body>
+</html>

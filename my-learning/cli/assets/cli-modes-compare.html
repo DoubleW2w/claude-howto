@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code CLI — 交互式 REPL vs 打印模式</title>
+<style>
+  /* ============================================================
+     Assumptions & Reasoning (Junior Designer Pass)
+     ------------------------------------------------------------
+     Aesthetic: Refined terminal-native dark. Not "tech demo" —
+     like a well-crafted developer tool. Deep charcoal, amber
+     accent for REPL (organic), steel accent for Print (mechanical).
+     Motion: REPL = continuous organic rhythm (conversation builds
+     over ~16s). Print = episodic burst (fire → output → fade,
+     ~7s cycle). The rhythm contrast IS the message.
+     Typography: System monospace for terminals, system sans with
+     tight tracking for labels. No external deps.
+     Anti-slop: No purple gradients, no emoji, no card+border-left,
+     no Inter/Roboto.
+     ============================================================ */
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #08080b;
+    --bg-surface: #111116;
+    --bg-terminal: #0c0c11;
+    --border: #1e1e28;
+    --divider: #1a1a24;
+
+    /* REPL side — warm amber */
+    --repl-accent: #e6b450;
+    --repl-accent-dim: rgba(230, 180, 80, 0.35);
+    --repl-accent-glow: rgba(230, 180, 80, 0.08);
+    --repl-prompt: #7eb87e;
+    --repl-user-bg: rgba(230, 180, 80, 0.06);
+    --repl-assistant-bg: rgba(160, 160, 180, 0.04);
+    --repl-cursor: #e6b450;
+
+    /* Print side — cool steel */
+    --print-accent: #5e9ecf;
+    --print-accent-dim: rgba(94, 158, 207, 0.35);
+    --print-accent-glow: rgba(94, 158, 207, 0.07);
+    --print-pipe: #5e9ecf;
+    --print-arrow: #5e9ecf;
+    --print-output-bg: rgba(94, 158, 207, 0.04);
+
+    /* Shared */
+    --text-primary: #d4d4dc;
+    --text-secondary: #88889a;
+    --text-dim: #555568;
+    --text-white: #ececef;
+
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', 'SF Mono', monospace;
+    --font-label: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: var(--font-label);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    /* Subtle noise texture overlay */
+    position: relative;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---- Layout ---- */
+  .stage {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1200px;
+    padding: 40px 48px;
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .panel-left  { padding-right: 28px; }
+  .panel-right { padding-left: 28px; }
+
+  /* ---- Divider ---- */
+  .divider-zone {
+    position: relative;
+    width: 1px;
+    background: var(--divider);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .divider-vs {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--bg);
+    padding: 14px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--divider);
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .divider-dot {
+    position: absolute;
+    width: 3px; height: 3px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    left: -1px;
+  }
+  .divider-dot:nth-child(2) { top: 12%; }
+  .divider-dot:nth-child(3) { bottom: 12%; }
+
+  /* ---- Panel Header ---- */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .mode-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border: 1px solid;
+    border-radius: 2px;
+  }
+  .panel-left .mode-badge {
+    color: var(--repl-accent);
+    border-color: var(--repl-accent-dim);
+    background: var(--repl-accent-glow);
+  }
+  .panel-right .mode-badge {
+    color: var(--print-accent);
+    border-color: var(--print-accent-dim);
+    background: var(--print-accent-glow);
+  }
+  .mode-title {
+    font-size: 18px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--text-white);
+  }
+  .mode-subtitle {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* ---- Terminal Window ---- */
+  .terminal {
+    background: var(--bg-terminal);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    flex: 1;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .terminal-chrome {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 14px;
+    height: 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.015);
+  }
+  .chrome-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    opacity: 0.35;
+  }
+  .chrome-dot:nth-child(1) { background: #ff5f57; }
+  .chrome-dot:nth-child(2) { background: #febc2e; }
+  .chrome-dot:nth-child(3) { background: #28c840; }
+  .chrome-label {
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    padding-right: 50px; /* offset for dot group */
+  }
+  .terminal-body {
+    flex: 1;
+    padding: 18px 20px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ---- REPL Conversation ---- */
+  .repl-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    position: relative;
+  }
+
+  .conversation-turn {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .user-bubble {
+    align-self: flex-end;
+    max-width: 85%;
+    background: var(--repl-user-bg);
+    border: 1px solid rgba(230, 180, 80, 0.12);
+    border-radius: 4px 4px 0 4px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--text-primary);
+    position: relative;
+    animation: bubbleIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .user-bubble .prompt-mark {
+    color: var(--repl-prompt);
+    margin-right: 6px;
+    font-weight: 600;
+  }
+  /* Tab completion ghost */
+  .tab-ghost {
+    display: inline-block;
+    color: var(--text-dim);
+    opacity: 0;
+    animation: ghostHint 2s ease-in-out 2s both;
+    font-style: italic;
+  }
+  @keyframes ghostHint {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 0.5; }
+  }
+
+  .assistant-bubble {
+    align-self: flex-start;
+    max-width: 90%;
+    background: var(--repl-assistant-bg);
+    border: 1px solid rgba(160, 160, 180, 0.08);
+    border-radius: 0 4px 4px 4px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    animation: bubbleIn 0.55s 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .assistant-bubble .code-inline {
+    background: rgba(255,255,255,0.05);
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 11px;
+  }
+
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Slash command popup */
+  .slash-popup {
+    position: absolute;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 0;
+    font-size: 11px;
+    min-width: 180px;
+    z-index: 2;
+    opacity: 0;
+    transform: translateY(4px);
+    animation: slashIn 0.25s 3.5s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+               slashOut 0.25s 5.5s ease-in forwards;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .slash-popup .slash-item {
+    padding: 5px 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .slash-popup .slash-item.highlighted {
+    background: rgba(230, 180, 80, 0.08);
+    color: var(--repl-accent);
+  }
+  .slash-popup .slash-cmd {
+    font-weight: 600;
+  }
+  .slash-popup .slash-desc {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  @keyframes slashIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slashOut {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+
+  /* Typing cursor */
+  .typing-cursor {
+    display: inline-block;
+    width: 8px; height: 15px;
+    background: var(--repl-cursor);
+    vertical-align: text-bottom;
+    margin-left: 1px;
+    animation: cursorBlink 1s step-end infinite;
+  }
+  @keyframes cursorBlink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0; }
+  }
+
+  /* ---- Print Mode Stream ---- */
+  .print-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    height: 100%;
+  }
+
+  .print-input-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-primary);
+    animation: printFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .print-arrow {
+    color: var(--print-arrow);
+    font-weight: 700;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .print-input-line .pipe-char {
+    color: var(--text-dim);
+    margin: 0 2px;
+  }
+  .print-input-line .flag {
+    color: var(--print-accent);
+    opacity: 0.8;
+  }
+  .print-input-line .query-text {
+    color: var(--text-primary);
+  }
+
+  .print-processing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+    animation: printFadeIn 0.3s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .processing-dots {
+    display: flex; gap: 3px;
+  }
+  .processing-dots span {
+    width: 4px; height: 4px;
+    background: var(--print-accent);
+    border-radius: 50%;
+    animation: dotPulse 1.2s ease-in-out infinite;
+  }
+  .processing-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .processing-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotPulse {
+    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+    40%           { opacity: 1;   transform: scale(1.2); }
+  }
+
+  .print-output {
+    background: var(--print-output-bg);
+    border: 1px solid rgba(94, 158, 207, 0.1);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    overflow: hidden;
+    animation: printFadeIn 0.5s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+    position: relative;
+  }
+  .print-output .json-key   { color: #79c0ff; }
+  .print-output .json-str   { color: #a5d6ff; }
+  .print-output .json-num   { color: #79c0ff; }
+  .print-output .json-bool  { color: #ffa657; }
+
+  .print-exit-line {
+    font-size: 10px;
+    color: var(--text-dim);
+    opacity: 0;
+    animation: printFadeIn 0.3s 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes printFadeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ---- Use Case Tags ---- */
+  .use-cases {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 4px;
+  }
+  .use-case-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 3px;
+    border: 1px solid;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .panel-left .use-case-tag {
+    color: var(--repl-accent);
+    border-color: rgba(230, 180, 80, 0.18);
+    background: rgba(230, 180, 80, 0.04);
+  }
+  .panel-right .use-case-tag {
+    color: var(--print-accent);
+    border-color: rgba(94, 158, 207, 0.18);
+    background: rgba(94, 158, 207, 0.04);
+  }
+
+  /* ---- Ambient glow on active side ---- */
+  .panel-left .terminal {
+    box-shadow: 0 0 0 1px rgba(230, 180, 80, 0.04), 0 0 40px rgba(230, 180, 80, 0.02);
+  }
+  .panel-right .terminal {
+    box-shadow: 0 0 0 1px rgba(94, 158, 207, 0.04), 0 0 40px rgba(94, 158, 207, 0.02);
+  }
+
+  /* ---- Key Distinction Callout ---- */
+  .distinction-bar {
+    margin-top: 24px;
+    padding: 12px 20px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+    position: relative;
+    z-index: 1;
+  }
+  .distinction-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+  }
+  .distinction-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .distinction-dot.repl  { background: var(--repl-accent); box-shadow: 0 0 6px var(--repl-accent-dim); }
+  .distinction-dot.print { background: var(--print-accent); box-shadow: 0 0 6px var(--print-accent-dim); }
+  .distinction-divider {
+    width: 1px; height: 16px;
+    background: var(--border);
+  }
+
+  /* ---- Page Title ---- */
+  .page-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 4px;
+  }
+  .page-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--text-white);
+    font-family: var(--font-mono);
+  }
+  .page-title-accent {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 860px) {
+    .stage {
+      flex-direction: column;
+      padding: 24px 20px;
+    }
+    .panel-left, .panel-right {
+      padding-left: 0; padding-right: 0;
+    }
+    .divider-zone {
+      width: 100%; height: 1px;
+      flex-direction: row;
+    }
+    .divider-vs {
+      position: static;
+      transform: none;
+    }
+    .divider-dot { display: none; }
+    .distinction-bar {
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: flex-start;
+    }
+  }
+
+  /* ---- Staggered entry animation for conversation turns ---- */
+  .turn-1 .user-bubble    { animation-delay: 0.1s; }
+  .turn-1 .assistant-bubble { animation-delay: 0.5s; }
+  .turn-2 .user-bubble    { animation-delay: 2.8s; }
+  .turn-2 .assistant-bubble { animation-delay: 3.3s; }
+  .turn-3 .user-bubble    { animation-delay: 6.0s; }
+  .turn-3 .assistant-bubble { animation-delay: 6.5s; }
+  .turn-4 .user-bubble    { animation-delay: 9.5s; }
+  .turn-4 .assistant-bubble { animation-delay: 10.0s; }
+
+  /* REPL whole-stream loop */
+  .repl-stream {
+    animation: replLoop 14s ease-in-out infinite;
+  }
+  @keyframes replLoop {
+    0%, 7%    { opacity: 0; }
+    12%, 88%  { opacity: 1; }
+    93%, 100% { opacity: 0.15; filter: blur(0.5px); }
+  }
+
+  /* Print mode — three different queries in sequence */
+  .print-seq-1 { animation: printSeq1 20s ease-in-out infinite; }
+  .print-seq-2 { animation: printSeq2 20s ease-in-out infinite; }
+  .print-seq-3 { animation: printSeq3 20s ease-in-out infinite; }
+
+  @keyframes printSeq1 {
+    0%, 8%    { opacity: 0; pointer-events: none; }
+    12%, 30%  { opacity: 1; pointer-events: auto; }
+    34%, 100% { opacity: 0; pointer-events: none; }
+  }
+  @keyframes printSeq2 {
+    0%, 34%   { opacity: 0; pointer-events: none; }
+    38%, 56%  { opacity: 1; pointer-events: auto; }
+    60%, 100% { opacity: 0; pointer-events: none; }
+  }
+  @keyframes printSeq3 {
+    0%, 60%   { opacity: 0; pointer-events: none; }
+    64%, 82%  { opacity: 1; pointer-events: auto; }
+    86%, 100% { opacity: 0; pointer-events: none; }
+  }
+
+  /* Print stage: all sequences absolute, fixed min-height */
+  .print-stage {
+    position: relative;
+    width: 100%;
+    min-height: 240px;
+  }
+  .print-seq {
+    position: absolute; top: 0; left: 0; right: 0;
+  }
+
+  /* Scrollbar hint on REPL side */
+  .repl-scroll-indicator {
+    position: absolute;
+    right: 2px;
+    top: 10%;
+    width: 3px;
+    height: 30%;
+    background: rgba(255,255,255,0.03);
+    border-radius: 3px;
+    animation: scrollGrow 14s ease-in-out infinite;
+  }
+  @keyframes scrollGrow {
+    0%   { height: 5%;  top: 10%; }
+    70%  { height: 35%; top: 10%; }
+    90%  { height: 40%; top: 10%; }
+    100% { height: 5%;  top: 10%; }
+  }
+</style>
+</head>
+<body>
+
+<div style="display:flex;flex-direction:column;gap:24px;width:100%;max-width:1280px;position:relative;z-index:1;">
+
+  <!-- Page title row -->
+  <div class="page-title-row" style="justify-content:center;">
+    <span class="page-title">Claude Code CLI</span>
+    <span class="page-title-accent">模式对比</span>
+  </div>
+
+  <!-- Main split -->
+  <div class="stage">
+    <!-- LEFT: Interactive REPL -->
+    <div class="panel panel-left">
+      <div class="panel-header">
+        <span class="mode-badge">模式一</span>
+        <div class="header-info">
+          <span class="mode-title">交互式 REPL</span>
+          <span class="mode-subtitle">Interactive REPL</span>
+        </div>
+      </div>
+
+      <div class="terminal">
+        <div class="terminal-chrome">
+          <span class="chrome-dot"></span><span class="chrome-dot"></span><span class="chrome-dot"></span>
+          <span class="chrome-label">claude — zsh</span>
+        </div>
+        <div class="terminal-body" style="position:relative;">
+          <div class="repl-stream">
+            <!-- Turn 1 -->
+            <div class="conversation-turn turn-1">
+              <div class="user-bubble">
+                <span class="prompt-mark">&rsaquo;</span>
+                帮我重构这个 React 组件，把状态管理提取到自定义 hook
+              </div>
+              <div class="assistant-bubble">
+                好的，我先分析当前组件的状态结构。<br>
+                这里有三个相关的 <span class="code-inline">useState</span> 调用，可以合并为一个自定义 hook <span class="code-inline">useFormState</span>。
+              </div>
+            </div>
+
+            <!-- Turn 2 — shows tab completion -->
+            <div class="conversation-turn turn-2">
+              <div class="user-bubble">
+                <span class="prompt-mark">&rsaquo;</span>
+                useFor<span class="tab-ghost">mState.ts</span><span class="typing-cursor"></span>
+              </div>
+              <div class="assistant-bubble">
+                我创建了 <span class="code-inline">hooks/useFormState.ts</span>，现在 <span class="code-inline">SignupForm</span> 从 82 行精简到 34 行。
+              </div>
+            </div>
+
+            <!-- Slash command popup -->
+            <div class="slash-popup" style="left:18px;top:155px;">
+              <div class="slash-item highlighted"><span class="slash-cmd">/review</span><span class="slash-desc">代码审查</span></div>
+              <div class="slash-item"><span class="slash-cmd">/commit</span><span class="slash-desc">生成提交</span></div>
+              <div class="slash-item"><span class="slash-cmd">/test</span><span class="slash-desc">运行测试</span></div>
+              <div class="slash-item"><span class="slash-cmd">/explain</span><span class="slash-desc">解释代码</span></div>
+            </div>
+
+            <!-- Turn 3 — uses slash command -->
+            <div class="conversation-turn turn-3">
+              <div class="user-bubble">
+                <span class="prompt-mark">&rsaquo;</span>
+                /review
+              </div>
+              <div class="assistant-bubble">
+                ## Code Review<br>
+                变更概览：1 个新文件，1 个修改<br>
+                <span style="color:#e6b450;">&bull;</span> <span class="code-inline">hooks/useFormState.ts</span> — 新增，逻辑清晰<br>
+                <span style="color:#5e9ecf;">&bull;</span> <span class="code-inline">SignupForm.tsx</span> — 精简，无遗留引用<br>
+                建议：可以给 <span class="code-inline">useFormState</span> 加单元测试。
+              </div>
+            </div>
+
+            <!-- Turn 4 — continuing conversation -->
+            <div class="conversation-turn turn-4">
+              <div class="user-bubble">
+                <span class="prompt-mark">&rsaquo;</span>
+                好，帮我写测试。还有第二个表单也要迁移
+              </div>
+              <div class="assistant-bubble">
+                我先生成 <span class="code-inline">useFormState.test.ts</span>，然后看一下 <span class="code-inline">CheckoutForm</span> 的状态结构&hellip;
+              </div>
+            </div>
+          </div>
+          <div class="repl-scroll-indicator"></div>
+        </div>
+      </div>
+
+      <div class="use-cases">
+        <span class="use-case-tag">日常开发</span>
+        <span class="use-case-tag">探索性工作</span>
+        <span class="use-case-tag">代码重构</span>
+        <span class="use-case-tag">调试分析</span>
+        <span class="use-case-tag">学习理解</span>
+      </div>
+    </div>
+
+    <!-- Center divider -->
+    <div class="divider-zone">
+      <div class="divider-dot"></div>
+      <div class="divider-vs">vs</div>
+      <div class="divider-dot"></div>
+    </div>
+
+    <!-- RIGHT: Print Mode -->
+    <div class="panel panel-right">
+      <div class="panel-header">
+        <span class="mode-badge">模式二</span>
+        <div class="header-info">
+          <span class="mode-title">打印模式</span>
+          <span class="mode-subtitle">Print Mode</span>
+        </div>
+      </div>
+
+      <div class="terminal">
+        <div class="terminal-chrome">
+          <span class="chrome-dot"></span><span class="chrome-dot"></span><span class="chrome-dot"></span>
+          <span class="chrome-label">claude — print mode</span>
+        </div>
+        <div class="terminal-body">
+          <div class="print-stage">
+
+            <!-- Sequence 1: JSON output -->
+            <div class="print-seq print-seq-1">
+              <div class="print-stream">
+                <div class="print-input-line">
+                  <span class="print-arrow">&rarr;</span>
+                  <span class="query-text">cat data.csv</span>
+                  <span class="pipe-char">|</span>
+                  <span class="query-text">claude -p</span>
+                  <span class="flag">--output-format json</span>
+                  <span class="query-text">"解析并汇总销售数据"</span>
+                </div>
+                <div class="print-processing">
+                  <span class="processing-dots"><span></span><span></span><span></span></span>
+                  处理中...
+                </div>
+                <div class="print-output">
+                  <span class="json-key">"summary"</span>: {<br>
+                  &nbsp;&nbsp;<span class="json-key">"total_revenue"</span>: <span class="json-num">847200</span>,<br>
+                  &nbsp;&nbsp;<span class="json-key">"top_product"</span>: <span class="json-str">"Pro 订阅"</span>,<br>
+                  &nbsp;&nbsp;<span class="json-key">"growth"</span>: <span class="json-num">0.23</span>,<br>
+                  &nbsp;&nbsp;<span class="json-key">"has_anomalies"</span>: <span class="json-bool">false</span><br>
+                  }
+                </div>
+                <div class="print-exit-line">[exit code 0] 进程结束</div>
+              </div>
+            </div>
+
+            <!-- Sequence 2: Pipe chain -->
+            <div class="print-seq print-seq-2">
+              <div class="print-stream">
+                <div class="print-input-line">
+                  <span class="print-arrow">&rarr;</span>
+                  <span class="query-text">find src/ -name "*.ts"</span>
+                  <span class="pipe-char">|</span>
+                  <span class="query-text">claude -p</span>
+                  <span class="flag">--max-tokens 500</span>
+                  <span class="query-text">"找出未使用的导入语句"</span>
+                </div>
+                <div class="print-processing">
+                  <span class="processing-dots"><span></span><span></span><span></span></span>
+                  扫描中...
+                </div>
+                <div class="print-output">
+                  <span style="color:var(--text-dim);">src/components/Modal.tsx:</span><br>
+                  &nbsp;&nbsp;L3: <span style="color:#ffa657;">useCallback</span> — 未使用<br>
+                  &nbsp;&nbsp;L7: <span style="color:#ffa657;">Spinner</span> — 未使用<br>
+                  <span style="color:var(--text-dim);">src/utils/format.ts:</span><br>
+                  &nbsp;&nbsp;L2: <span style="color:#ffa657;">dayjs</span> — 未使用<br>
+                  <span style="color:var(--text-dim);">共 3 处未使用的导入</span>
+                </div>
+                <div class="print-exit-line">[exit code 0] 进程结束</div>
+              </div>
+            </div>
+
+            <!-- Sequence 3: CI check -->
+            <div class="print-seq print-seq-3">
+              <div class="print-stream">
+                <div class="print-input-line">
+                  <span class="print-arrow">&rarr;</span>
+                  <span class="query-text">git diff HEAD~1</span>
+                  <span class="pipe-char">|</span>
+                  <span class="query-text">claude -p</span>
+                  <span class="flag">--dangerously-skip-permissions</span>
+                  <span class="query-text">"审查本次变更的安全性"</span>
+                </div>
+                <div class="print-processing">
+                  <span class="processing-dots"><span></span><span></span><span></span></span>
+                  审查中...
+                </div>
+                <div class="print-output">
+                  <span style="color:#7eb87e;">Security Review — PASS</span><br>
+                  &bull; 无密钥泄露<br>
+                  &bull; 无 SQL 注入风险<br>
+                  &bull; 依赖版本无已知 CVE
+                </div>
+                <div class="print-exit-line">[exit code 0] 进程结束，管道关闭</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="use-cases">
+        <span class="use-case-tag">CI/CD 流水线</span>
+        <span class="use-case-tag">Shell 脚本</span>
+        <span class="use-case-tag">管道组合</span>
+        <span class="use-case-tag">批量处理</span>
+        <span class="use-case-tag">自动化任务</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom distinction bar -->
+  <div class="distinction-bar">
+    <div class="distinction-item">
+      <span class="distinction-dot repl"></span>
+      会话持续，多轮对话
+    </div>
+    <span class="distinction-divider"></span>
+    <div class="distinction-item">
+      <span class="distinction-dot repl"></span>
+      Tab 补全 / 历史 / 斜杠命令
+    </div>
+    <span class="distinction-divider"></span>
+    <div class="distinction-item">
+      <span class="distinction-dot print"></span>
+      单次查询 → 输出 → 退出
+    </div>
+    <span class="distinction-divider"></span>
+    <div class="distinction-item">
+      <span class="distinction-dot print"></span>
+      可脚本化 / 可管道 / JSON 输出
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code CLI · Permission Decision Flow</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-deep: #08080c;
+    --bg-surface: #0f0f17;
+    --bg-card: #14141f;
+    --border-subtle: #1e1e2e;
+    --text-primary: #e0e0e8;
+    --text-secondary: #8888a0;
+    --text-muted: #555568;
+    --accent-green: #00e05a;
+    --accent-yellow: #e0b000;
+    --accent-red: #e04040;
+    --accent-cyan: #00c8d0;
+    --glow-green: rgba(0, 224, 90, 0.15);
+    --glow-yellow: rgba(224, 176, 0, 0.15);
+    --glow-red: rgba(224, 64, 64, 0.15);
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Monaco', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(0, 200, 208, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(0, 224, 90, 0.03) 0%, transparent 50%);
+  }
+
+  /* Dot grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 1100px;
+    padding: 48px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+  }
+  .header .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-top: 10px;
+    letter-spacing: -0.01em;
+  }
+  .header h1 span {
+    color: var(--accent-cyan);
+  }
+
+  /* Main layout: tree + cards side by side */
+  .main {
+    display: flex;
+    gap: 56px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  /* ---- Decision Tree (SVG) ---- */
+  .tree-area {
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .tree-area svg {
+    display: block;
+  }
+
+  /* Node styles */
+  .node-rect {
+    fill: var(--bg-card);
+    stroke: var(--border-subtle);
+    stroke-width: 1.5;
+    rx: 4;
+    ry: 4;
+    transition: fill 0.4s ease, stroke 0.4s ease;
+  }
+  .node-rect.active {
+    stroke: var(--accent-cyan);
+  }
+  .node-rect.decision {
+    rx: 2;
+    ry: 2;
+    stroke-dasharray: 6 3;
+  }
+  .node-rect.decision.active {
+    stroke: var(--accent-yellow);
+    stroke-dasharray: 0;
+  }
+  .node-rect.terminal-green  { stroke: var(--accent-green); }
+  .node-rect.terminal-yellow { stroke: var(--accent-yellow); }
+  .node-rect.terminal-red    { stroke: var(--accent-red); }
+
+  .node-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    fill: var(--text-secondary);
+    text-anchor: middle;
+    dominant-baseline: central;
+    transition: fill 0.4s ease;
+  }
+  .node-text.active {
+    fill: var(--text-primary);
+  }
+
+  /* Edge lines */
+  .edge-line {
+    stroke: var(--border-subtle);
+    stroke-width: 1.5;
+    fill: none;
+    transition: stroke 0.5s ease;
+  }
+  .edge-line.active {
+    stroke: var(--text-muted);
+  }
+  .edge-line.path-green  { stroke: var(--accent-green); }
+  .edge-line.path-yellow { stroke: var(--accent-yellow); }
+  .edge-line.path-red    { stroke: var(--accent-red); }
+
+  .edge-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    fill: var(--text-muted);
+    text-anchor: middle;
+    transition: fill 0.4s ease, opacity 0.4s ease;
+    opacity: 0.55;
+  }
+  .edge-label.active {
+    fill: var(--text-secondary);
+    opacity: 1;
+  }
+
+  /* Glow under active nodes */
+  .node-glow {
+    fill: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  .node-glow.active {
+    opacity: 1;
+    animation: glowPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes glowPulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+  }
+
+  /* ---- Cards Panel ---- */
+  .cards-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 320px;
+    max-width: 400px;
+  }
+
+  .mode-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 20px 24px;
+    opacity: 0;
+    transform: translateX(24px);
+    transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+    cursor: default;
+    position: relative;
+    overflow: hidden;
+  }
+  .mode-card.revealed {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .mode-card.highlighted {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 24px rgba(0, 200, 208, 0.06);
+  }
+
+  .mode-card .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .mode-card .card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .mode-card .card-icon.green  { background: rgba(0, 224, 90, 0.1); color: var(--accent-green); }
+  .mode-card .card-icon.yellow { background: rgba(224, 176, 0, 0.1); color: var(--accent-yellow); }
+  .mode-card .card-icon.red    { background: rgba(224, 64, 64, 0.1); color: var(--accent-red); }
+
+  .mode-card .card-name {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+  .mode-card .card-security {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .mode-card .card-security.low    { background: rgba(0, 224, 90, 0.1); color: var(--accent-green); }
+  .mode-card .card-security.medium { background: rgba(224, 176, 0, 0.1); color: var(--accent-yellow); }
+  .mode-card .card-security.high   { background: rgba(224, 64, 64, 0.1); color: var(--accent-red); }
+
+  .mode-card .card-summary {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+  .mode-card .card-examples {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.7;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .mode-card .card-examples span {
+    color: var(--text-secondary);
+  }
+
+  /* Hint line in card before reveal */
+  .mode-card .card-placeholder {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 12px 0;
+    letter-spacing: 0.05em;
+  }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+  .btn-next {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    padding: 10px 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-next:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 200, 208, 0.05);
+    color: #fff;
+  }
+  .btn-next:active {
+    transform: scale(0.97);
+  }
+  .btn-next:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    border-color: var(--border-subtle);
+  }
+  .btn-next:disabled:hover {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+  .btn-reset {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    transition: color 0.2s ease;
+  }
+  .btn-reset:hover {
+    color: var(--text-secondary);
+  }
+
+  .step-indicator {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+
+  /* Terminal cursor blinking effect on active node text */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .cursor-blink {
+    animation: blink 1s step-end infinite;
+  }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 900px) {
+    .main {
+      flex-direction: column;
+      align-items: center;
+      gap: 32px;
+    }
+    .cards-panel {
+      min-width: unset;
+      max-width: 100%;
+      width: 100%;
+    }
+    .container {
+      padding: 32px 20px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="eyebrow">Claude Code CLI</div>
+    <h1>Permission Decision <span>Flow</span></h1>
+  </div>
+
+  <!-- Main: Tree + Cards -->
+  <div class="main">
+
+    <!-- Decision Tree SVG -->
+    <div class="tree-area">
+      <svg id="tree" viewBox="0 0 480 440" width="480" height="440" xmlns="http://www.w3.org/2000/svg">
+
+        <!-- Definitions: glows and markers -->
+        <defs>
+          <filter id="glow-green">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-yellow">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-red">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- === NODE: Start === -->
+        <ellipse class="node-glow" id="glow-start" cx="240" cy="30" rx="38" ry="16" fill="rgba(0,200,208,0.2)"/>
+        <rect class="node-rect" id="node-start" x="200" y="16" width="80" height="28" rx="14" ry="14"/>
+        <text class="node-text" id="text-start" x="240" y="30">START</text>
+
+        <!-- Edge: Start -> Q1 -->
+        <line class="edge-line" id="edge-s-q1" x1="240" y1="44" x2="240" y2="78"/>
+
+        <!-- === NODE: Q1 "需要修改文件吗？" === -->
+        <ellipse class="node-glow" id="glow-q1" cx="240" cy="98" rx="92" ry="18" fill="rgba(0,200,208,0.15)"/>
+        <rect class="node-rect decision" id="node-q1" x="134" y="80" width="212" height="36"/>
+        <text class="node-text" id="text-q1" x="240" y="98">需要修改文件吗？</text>
+
+        <!-- Edge: Q1 -> plan (left branch, NO) -->
+        <line class="edge-line" id="edge-q1-plan" x1="134" y1="98" x2="62" y2="98"/>
+        <line class="edge-line" id="edge-q1-plan-d" x1="62" y1="98" x2="62" y2="144"/>
+        <text class="edge-label" id="label-no-1" x="96" y="90">No</text>
+
+        <!-- === NODE: plan (terminal, NO branch) === -->
+        <ellipse class="node-glow" id="glow-plan" cx="62" cy="164" rx="68" ry="18" fill="rgba(0,224,90,0.12)"/>
+        <rect class="node-rect terminal-green" id="node-plan" x="12" y="146" width="100" height="36"/>
+        <text class="node-text" id="text-plan" x="62" y="164">plan</text>
+
+        <!-- Edge: Q1 -> Q2 (right branch, YES) -->
+        <line class="edge-line" id="edge-q1-q2" x1="346" y1="98" x2="400" y2="98"/>
+        <line class="edge-line" id="edge-q1-q2-d" x1="400" y1="98" x2="400" y2="222"/>
+        <text class="edge-label" id="label-yes-1" x="374" y="90">Yes</text>
+
+        <!-- === NODE: Q2 "信任这个操作吗？" === -->
+        <ellipse class="node-glow" id="glow-q2" cx="400" cy="244" rx="92" ry="18" fill="rgba(0,200,208,0.15)"/>
+        <rect class="node-rect decision" id="node-q2" x="294" y="226" width="212" height="36"/>
+        <text class="node-text" id="text-q2" x="400" y="244">信任这个操作吗？</text>
+
+        <!-- Edge: Q2 -> acceptEdits (left branch, NEED CONFIRM) -->
+        <line class="edge-line" id="edge-q2-ae" x1="294" y1="244" x2="204" y2="244"/>
+        <line class="edge-line" id="edge-q2-ae-d" x1="204" y1="244" x2="204" y2="304"/>
+        <text class="edge-label" id="label-confirm" x="248" y="236">Need confirm</text>
+
+        <!-- === NODE: acceptEdits (terminal) === -->
+        <ellipse class="node-glow" id="glow-ae" cx="204" cy="326" rx="82" ry="18" fill="rgba(224,176,0,0.12)"/>
+        <rect class="node-rect terminal-yellow" id="node-ae" x="132" y="308" width="144" height="36"/>
+        <text class="node-text" id="text-ae" x="204" y="326">acceptEdits</text>
+
+        <!-- Edge: Q2 -> auto (right branch, TRUSTED) -->
+        <line class="edge-line" id="edge-q2-auto" x1="506" y1="244" x2="560" y2="244"/>
+        <line class="edge-line" id="edge-q2-auto-d" x1="560" y1="244" x2="560" y2="304"/>
+        <text class="edge-label" id="label-trust" x="534" y="236">Trusted</text>
+
+        <!-- === NODE: auto (terminal) === -->
+        <ellipse class="node-glow" id="glow-auto" cx="560" cy="326" rx="68" ry="18" fill="rgba(224,64,64,0.12)"/>
+        <rect class="node-rect terminal-red" id="node-auto" x="500" y="308" width="120" height="36"/>
+        <text class="node-text" id="text-auto" x="560" y="326">auto</text>
+
+      </svg>
+    </div>
+
+    <!-- Mode Cards -->
+    <div class="cards-panel">
+
+      <!-- Plan card -->
+      <div class="mode-card" id="card-plan">
+        <div class="card-header">
+          <div class="card-icon green">R</div>
+          <div class="card-name">plan</div>
+          <div class="card-security low">LOW</div>
+        </div>
+        <div class="card-summary">只读模式。允许 Read / Grep / Glob，禁止任何文件写入。</div>
+        <div class="card-examples">
+          <span>适用场景：</span>代码审查、探索陌生仓库、分析日志<br>
+          <span>示例：</span>「帮我看看这个项目的架构」<br>
+          <span style="opacity:0.5">&#8627;</span>「搜索所有 TODO 注释」
+        </div>
+      </div>
+
+      <!-- acceptEdits card -->
+      <div class="mode-card" id="card-acceptedits">
+        <div class="card-header">
+          <div class="card-icon yellow">E</div>
+          <div class="card-name">acceptEdits</div>
+          <div class="card-security medium">MEDIUM</div>
+        </div>
+        <div class="card-summary">编辑需确认。每次文件修改前弹出确认提示，用户逐项批准。</div>
+        <div class="card-examples">
+          <span>适用场景：</span>重构关键模块、修改配置文件<br>
+          <span>示例：</span>「重构这个函数但每次改之前问我」<br>
+          <span style="opacity:0.5">&#8627;</span>「更新 CI 配置，我要逐条审核」
+        </div>
+      </div>
+
+      <!-- auto card -->
+      <div class="mode-card" id="card-auto">
+        <div class="card-header">
+          <div class="card-icon red">A</div>
+          <div class="card-name">auto</div>
+          <div class="card-security high">HIGH</div>
+        </div>
+        <div class="card-summary">自动批准。所有编辑操作静默执行，无需用户逐次确认。</div>
+        <div class="card-examples">
+          <span>适用场景：</span>信任的迭代任务、批量格式化<br>
+          <span>示例：</span>「把整个项目格式化成 Prettier 风格」<br>
+          <span style="opacity:0.5">&#8627;</span>「批量重命名这些文件」
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn-reset" id="btn-reset" onclick="resetFlow()">reset</button>
+    <button class="btn-next" id="btn-next" onclick="advanceFlow()">开始</button>
+    <span class="step-indicator" id="step-indicator">0 / 6</span>
+  </div>
+
+</div>
+
+<script>
+  // ---- State machine ----
+  const TOTAL_STEPS = 6;
+  let currentStep = 0;
+
+  // Elements grouped by activation step
+  const stepMap = {
+    // Step 1: Root appears
+    1: {
+      nodes: ['node-start'],
+      texts: ['text-start'],
+      glows: ['glow-start'],
+    },
+    // Step 2: Q1 appears
+    2: {
+      nodes: ['node-q1'],
+      texts: ['text-q1'],
+      glows: ['glow-q1'],
+      edges: ['edge-s-q1'],
+    },
+    // Step 3: Q1 branches out (two edges + No/Yes labels)
+    3: {
+      edges: ['edge-q1-plan', 'edge-q1-plan-d', 'edge-q1-q2', 'edge-q1-q2-d'],
+      labels: ['label-no-1', 'label-yes-1'],
+    },
+    // Step 4: Plan node + Q2 node appear
+    4: {
+      nodes: ['node-plan', 'node-q2'],
+      texts: ['text-plan', 'text-q2'],
+      glows: ['glow-plan', 'glow-q2'],
+      cards: ['card-plan'],
+    },
+    // Step 5: Q2 branches out + acceptEdits + auto nodes
+    5: {
+      edges: [
+        'edge-q2-ae', 'edge-q2-ae-d',
+        'edge-q2-auto', 'edge-q2-auto-d',
+      ],
+      labels: ['label-confirm', 'label-trust'],
+      nodes: ['node-ae', 'node-auto'],
+      texts: ['text-ae', 'text-auto'],
+      glows: ['glow-ae', 'glow-auto'],
+      cards: ['card-acceptedits', 'card-auto'],
+    },
+    // Step 6: Highlight all cards
+    6: {
+      cards: [], // special handling: highlight all revealed cards
+    },
+  };
+
+  function activateElements(ids, className) {
+    ids.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add(className || 'active');
+    });
+  }
+
+  function revealCards(ids) {
+    ids.forEach(function(id) {
+      var card = document.getElementById(id);
+      if (card) card.classList.add('revealed');
+    });
+  }
+
+  function highlightAllCards() {
+    ['card-plan', 'card-acceptedits', 'card-auto'].forEach(function(id) {
+      var card = document.getElementById(id);
+      if (card) card.classList.add('highlighted');
+    });
+  }
+
+  function unhighlightAllCards() {
+    ['card-plan', 'card-acceptedits', 'card-auto'].forEach(function(id) {
+      var card = document.getElementById(id);
+      if (card) card.classList.remove('highlighted');
+    });
+  }
+
+  function resetAll() {
+    // Remove all active/highlighted classes
+    var allActive = document.querySelectorAll(
+      '.node-rect.active, .node-text.active, .node-glow.active, ' +
+      '.edge-line.active, .edge-label.active, .mode-card.revealed, .mode-card.highlighted'
+    );
+    allActive.forEach(function(el) {
+      el.classList.remove('active', 'revealed', 'highlighted');
+    });
+
+    // Also clear path-specific classes on edges
+    var edges = document.querySelectorAll('.edge-line');
+    edges.forEach(function(e) {
+      e.classList.remove('path-green', 'path-yellow', 'path-red');
+    });
+
+    // Reset path colors on specific edges
+    var greenEdges = ['edge-q1-plan', 'edge-q1-plan-d'];
+    var yellowEdges = ['edge-q2-ae', 'edge-q2-ae-d'];
+    var redEdges = ['edge-q2-auto', 'edge-q2-auto-d'];
+    greenEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-green');
+    });
+    yellowEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-yellow');
+    });
+    redEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-red');
+    });
+
+    currentStep = 0;
+    updateButton();
+  }
+
+  function advanceFlow() {
+    if (currentStep >= TOTAL_STEPS) return;
+
+    currentStep++;
+    var step = stepMap[currentStep];
+    if (!step) return;
+
+    // Process each category
+    if (step.nodes) activateElements(step.nodes, 'active');
+    if (step.texts) activateElements(step.texts, 'active');
+    if (step.glows) activateElements(step.glows, 'active');
+    if (step.edges) activateElements(step.edges, 'active');
+    if (step.labels) activateElements(step.labels, 'active');
+
+    // Reveal cards with staggered delay
+    if (step.cards) {
+      step.cards.forEach(function(id, i) {
+        setTimeout(function() {
+          var card = document.getElementById(id);
+          if (card) {
+            card.classList.add('revealed');
+            // After all cards in this step are revealed, check if it's the last step
+            if (i === step.cards.length - 1 && currentStep === TOTAL_STEPS) {
+              setTimeout(highlightAllCards, 300);
+            }
+          }
+        }, i * 180);
+      });
+    }
+
+    // Step 6: highlight all
+    if (currentStep === TOTAL_STEPS) {
+      setTimeout(highlightAllCards, 500);
+    }
+
+    updateButton();
+  }
+
+  function resetFlow() {
+    resetAll();
+    updateButton();
+  }
+
+  function updateButton() {
+    var btn = document.getElementById('btn-next');
+    var indicator = document.getElementById('step-indicator');
+
+    if (currentStep === 0) {
+      btn.textContent = '开始';
+      btn.disabled = false;
+    } else if (currentStep >= TOTAL_STEPS) {
+      btn.textContent = '完成';
+      btn.disabled = true;
+    } else {
+      btn.textContent = '下一步';
+      btn.disabled = false;
+    }
+
+    indicator.textContent = currentStep + ' / ' + TOTAL_STEPS;
+  }
+
+  // Initialize: set path color classes on edges
+  (function init() {
+    // Pre-set path colors (always visible, not animation-dependent)
+    var greenEdges = ['edge-q1-plan', 'edge-q1-plan-d'];
+    var yellowEdges = ['edge-q2-ae', 'edge-q2-ae-d'];
+    var redEdges = ['edge-q2-auto', 'edge-q2-auto-d'];
+
+    greenEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-green');
+    });
+    yellowEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-yellow');
+    });
+    redEdges.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('path-red');
+    });
+
+    updateButton();
+  })();
+</script>
+
+</body>
+</html>

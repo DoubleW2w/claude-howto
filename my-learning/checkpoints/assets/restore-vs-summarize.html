@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>恢复 vs 总结 — Claude Code Checkpoints</title>
+<style>
+  /* === Design System === */
+  /* Philosophy: technical precision, timeline-as-interface, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  /* Font pairing: JetBrains Mono for data/code, Noto Sans SC for readability */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+    --accent-restore: #e06c75;
+    --accent-restore-dim: rgba(224,108,117,0.18);
+    --accent-summarize: #56b6c2;
+    --accent-summarize-dim: rgba(86,182,194,0.18);
+    --accent-summarize-glow: rgba(86,182,194,0.35);
+    --msg-user: #1e3a5f;
+    --msg-assistant: #1a2332;
+    --msg-faded: rgba(26,35,50,0.3);
+    --summary-card: #0d2b2e;
+    --summary-border: #1a4a4e;
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    padding: 48px 24px 32px;
+    max-width: 900px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 8px;
+  }
+  .header h1 .restore-label { color: var(--accent-restore); }
+  .header h1 .vs { color: var(--ink-muted); font-weight: 400; margin: 0 8px; }
+  .header h1 .summarize-label { color: var(--accent-summarize); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+  }
+
+  /* === Controls === */
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+    align-items: center;
+  }
+  .mode-tab {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 20px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    color: var(--ink-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.25s var(--ease-out-expo);
+    letter-spacing: 0.02em;
+    user-select: none;
+  }
+  .mode-tab:hover {
+    border-color: var(--border-active);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+  }
+  .mode-tab.active {
+    border-color: var(--border-active);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+  }
+  .mode-tab.active.restore-tab {
+    border-color: var(--accent-restore);
+    box-shadow: 0 0 12px var(--accent-restore-dim);
+  }
+  .mode-tab.active.summarize-tab {
+    border-color: var(--accent-summarize);
+    box-shadow: 0 0 12px var(--accent-summarize-dim);
+  }
+  .replay-btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 20px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--ink-muted);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.25s var(--ease-out-expo);
+    letter-spacing: 0.02em;
+    margin-left: auto;
+  }
+  .replay-btn:hover {
+    border-color: var(--border-active);
+    color: var(--ink-primary);
+  }
+
+  /* === Main Stage === */
+  .stage {
+    width: 100%;
+    max-width: 1100px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 0 24px 32px;
+    position: relative;
+  }
+
+  /* === Column === */
+  .column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 20px;
+  }
+  .column-title {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .column-subtitle {
+    font-size: 11px;
+    color: var(--ink-muted);
+    margin-bottom: 24px;
+    letter-spacing: 0.02em;
+  }
+  .restore-col .column-title { color: var(--accent-restore); }
+  .summarize-col .column-title { color: var(--accent-summarize); }
+
+  /* === Divider === */
+  .stage::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border-subtle);
+    transform: translateX(-0.5px);
+  }
+
+  /* === Timeline Canvas === */
+  .timeline-container {
+    width: 100%;
+    max-width: 440px;
+    position: relative;
+    padding: 20px 0 4px;
+  }
+  .timeline-line {
+    position: absolute;
+    left: 16px;
+    top: 28px;
+    bottom: 16px;
+    width: 2px;
+    background: var(--border-subtle);
+    border-radius: 1px;
+  }
+  .timeline-line::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -3px;
+    width: 8px; height: 8px;
+    background: var(--border-subtle);
+    border-radius: 50%;
+  }
+  .timeline-line::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: -3px;
+    width: 8px; height: 8px;
+    background: var(--border-subtle);
+    border-radius: 50%;
+  }
+
+  /* === Message Row === */
+  .msg-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 14px;
+    position: relative;
+    transition: opacity 0.6s var(--ease-out-expo),
+                transform 0.6s var(--ease-out-expo);
+  }
+  .msg-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--border-active);
+    margin-right: 14px;
+    flex-shrink: 0;
+    z-index: 1;
+    transition: background 0.4s var(--ease-out-expo),
+                box-shadow 0.4s var(--ease-out-expo),
+                transform 0.5s var(--ease-out-expo);
+  }
+  .msg-dot.checkpoint {
+    background: var(--accent-restore);
+    box-shadow: 0 0 8px var(--accent-restore-dim);
+    width: 12px; height: 12px;
+    margin-left: -1px;
+    margin-right: 13px;
+  }
+  .msg-bubble {
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink-secondary);
+    position: relative;
+    transition: all 0.6s var(--ease-out-expo);
+    white-space: nowrap;
+  }
+  .msg-bubble.user { background: var(--msg-user); border-left: 2px solid rgba(96,156,220,0.4); }
+  .msg-bubble.assistant { background: var(--msg-assistant); }
+  .msg-bubble.wide { min-width: 200px; }
+  .msg-bubble.medium { min-width: 140px; }
+  .msg-bubble.narrow { min-width: 90px; }
+  .msg-bubble.summary-card {
+    background: var(--summary-card);
+    border: 1px solid var(--summary-border);
+    border-left: 2px solid var(--accent-summarize);
+    color: var(--accent-summarize);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 0 16px var(--accent-summarize-dim);
+    padding: 10px 16px;
+    min-width: 180px;
+  }
+
+  /* Animation states */
+  .msg-row.fading {
+    opacity: 0.12;
+    transform: translateX(12px);
+  }
+  .msg-row.fading .msg-bubble {
+    opacity: 0.15;
+    filter: blur(1px);
+  }
+  .msg-row.collapsing {
+    opacity: 0;
+    transform: scaleY(0) translateY(-50%);
+    margin-bottom: 0;
+    overflow: hidden;
+    transition: opacity 0.5s var(--ease-out-expo),
+                transform 0.7s var(--ease-out-expo),
+                margin-bottom 0.7s var(--ease-out-expo);
+  }
+  .msg-dot.highlight {
+    background: var(--accent-summarize) !important;
+    box-shadow: 0 0 14px var(--accent-summarize-glow) !important;
+    transform: scale(1.4);
+  }
+
+  /* === What Gets Affected === */
+  .affected-section {
+    margin-top: 28px;
+    width: 100%;
+    max-width: 440px;
+  }
+  .affected-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+  .affected-list {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .affected-chip {
+    font-size: 11px;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--ink-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.5s var(--ease-out-expo);
+  }
+  .affected-chip .indicator {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .affected-chip.affected .indicator { background: var(--accent-restore); }
+  .affected-chip.unaffected .indicator { background: var(--ink-muted); }
+  .affected-chip.affected {
+    border-color: rgba(224,108,117,0.3);
+    color: var(--accent-restore);
+  }
+  /* Summarize column affected chips use teal accent */
+  .summarize-col .affected-chip.affected .indicator { background: var(--accent-summarize); }
+  .summarize-col .affected-chip.affected {
+    border-color: rgba(86,182,194,0.3);
+    color: var(--accent-summarize);
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 24px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .legend-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+  }
+  .legend-dot.cp { background: var(--accent-restore); box-shadow: 0 0 6px var(--accent-restore-dim); }
+  .legend-dot.normal { background: var(--border-active); }
+  .legend-dot.summary { background: var(--accent-summarize); box-shadow: 0 0 6px var(--accent-summarize-dim); }
+
+  /* === Operation Label === */
+  .op-label {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s var(--ease-out-expo),
+                transform 0.4s var(--ease-out-expo);
+    z-index: 10;
+  }
+  .op-label.restore-label {
+    background: rgba(224,108,117,0.12);
+    border: 1px solid rgba(224,108,117,0.3);
+    color: var(--accent-restore);
+  }
+  .op-label.summarize-label {
+    background: rgba(86,182,194,0.12);
+    border: 1px solid rgba(86,182,194,0.3);
+    color: var(--accent-summarize);
+  }
+  .op-label.visible {
+    opacity: 1;
+  }
+
+  /* === Sub-mode toggle (Summarize) === */
+  .sub-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+  }
+  .sub-toggle-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 14px;
+    background: var(--bg-surface);
+    border: none;
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition: all 0.2s var(--ease-out-expo);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .sub-toggle-btn:not(:last-child) {
+    border-right: 1px solid var(--border-subtle);
+  }
+  .sub-toggle-btn.active {
+    background: var(--bg-elevated);
+    color: var(--accent-summarize);
+  }
+  .sub-toggle-btn:hover {
+    color: var(--ink-primary);
+  }
+
+  /* === Responsive: stack on narrow === */
+  @media (max-width: 800px) {
+    .stage {
+      grid-template-columns: 1fr;
+      gap: 32px;
+    }
+    .stage::after { display: none; }
+    .controls {
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .replay-btn { margin-left: 0; }
+  }
+
+  /* === Summary card entrance animation === */
+  @keyframes summaryCardAppear {
+    0% {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .msg-row.summary-appear .msg-bubble.summary-card {
+    animation: summaryCardAppear 0.5s var(--ease-out-expo) forwards;
+  }
+
+  /* === Rewind indicator arrow === */
+  .rewind-arrow {
+    position: absolute;
+    right: -32px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    transition: opacity 0.4s var(--ease-out-expo);
+    color: var(--accent-restore);
+    font-family: var(--font-mono);
+    font-size: 18px;
+  }
+  .rewind-arrow.visible { opacity: 1; }
+
+  /* === Checkpoint marker label === */
+  .cp-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--accent-restore);
+    position: absolute;
+    left: 34px;
+    top: 42px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    letter-spacing: 0.04em;
+  }
+  .cp-label.visible { opacity: 1; }
+
+  /* === Pulse animation for active dots === */
+  @keyframes dotPulse {
+    0%, 100% { box-shadow: 0 0 8px var(--accent-summarize-dim); }
+    50% { box-shadow: 0 0 20px var(--accent-summarize-glow); }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>
+    <span class="restore-label">恢复</span>
+    <span class="vs">vs</span>
+    <span class="summarize-label">总结</span>
+  </h1>
+  <p>两个容易混淆的概念，本质完全不同。恢复是时间旅行，总结是信息压缩。</p>
+</div>
+
+<div class="controls">
+  <button class="mode-tab active restore-tab" data-mode="restore">恢复 Restore</button>
+  <button class="mode-tab summarize-tab" data-mode="summarize">总结 Summarize</button>
+  <button class="replay-btn" onclick="replayAll()">重新演示</button>
+</div>
+
+<div class="stage" id="stage">
+
+  <!-- === Left: Restore === -->
+  <div class="column restore-col" id="restore-col">
+    <div class="column-title">恢复 = 撤销，回到过去</div>
+    <div class="column-subtitle">代码文件 + 对话历史全部回退</div>
+
+    <div class="timeline-container" id="restore-timeline">
+      <div class="timeline-line"></div>
+      <div class="cp-label" id="cp-label-restore">CHECKPOINT</div>
+      <!-- Messages: 0:user, 1:assistant, 2:user, 3:assistant, 4(user at CP), 5:assistant, 6:user, 7:assistant -->
+      <div class="msg-row" data-idx="0">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user wide">帮我实现用户登录功能</div>
+      </div>
+      <div class="msg-row" data-idx="1">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant medium">创建了 auth.py...</div>
+      </div>
+      <div class="msg-row" data-idx="2">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user medium">加上 JWT token 支持</div>
+      </div>
+      <div class="msg-row" data-idx="3">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant wide">实现了 JWT 签发和验证</div>
+      </div>
+      <div class="msg-row" data-idx="4">
+        <div class="msg-dot checkpoint"></div>
+        <div class="msg-bubble user narrow">跑一下测试</div>
+      </div>
+      <div class="msg-row" data-idx="5">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant medium">全部测试通过</div>
+      </div>
+      <div class="msg-row" data-idx="6">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user wide">重构一下认证中间件</div>
+      </div>
+      <div class="msg-row" data-idx="7">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant medium">重构完成但引入 bug</div>
+      </div>
+    </div>
+
+    <div class="affected-section">
+      <div class="affected-label">影响范围</div>
+      <div class="affected-list">
+        <div class="affected-chip affected" id="rc-code">
+          <span class="indicator"></span>代码文件
+        </div>
+        <div class="affected-chip affected" id="rc-convo">
+          <span class="indicator"></span>对话历史
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Right: Summarize === -->
+  <div class="column summarize-col" id="summarize-col">
+    <div class="column-title">总结 = 压缩，保留概要</div>
+    <div class="column-subtitle">只压缩对话，文件保持不变</div>
+
+    <div class="sub-toggle" id="sub-toggle">
+      <button class="sub-toggle-btn active" data-sub="forward">从此处总结</button>
+      <button class="sub-toggle-btn" data-sub="backward">到此处总结</button>
+    </div>
+
+    <div class="timeline-container" id="summarize-timeline">
+      <div class="timeline-line"></div>
+      <!-- Messages: 0:user, 1:assistant, 2:user(CP for forward), 3:assistant, 4:user, 5:assistant, 6:user, 7:assistant -->
+      <div class="msg-row" data-idx="0">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user narrow">开始调试内存泄漏</div>
+      </div>
+      <div class="msg-row" data-idx="1">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant wide">检查了事件监听器...</div>
+      </div>
+      <div class="msg-row" data-idx="2">
+        <div class="msg-dot checkpoint" id="sum-cp-dot"></div>
+        <div class="msg-bubble user medium">试试数据库连接池</div>
+      </div>
+      <div class="msg-row" data-idx="3">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant narrow">不是连接问题</div>
+      </div>
+      <div class="msg-row" data-idx="4">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user wide">检查循环引用和闭包</div>
+      </div>
+      <div class="msg-row" data-idx="5">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant medium">发现缓存层循环引用</div>
+      </div>
+      <div class="msg-row" data-idx="6">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble user narrow">确认修复了？</div>
+      </div>
+      <div class="msg-row" data-idx="7">
+        <div class="msg-dot"></div>
+        <div class="msg-bubble assistant medium">内存稳定，修复确认</div>
+      </div>
+      <!-- Summary card (injected by JS) -->
+    </div>
+
+    <div class="affected-section">
+      <div class="affected-label">影响范围</div>
+      <div class="affected-list">
+        <div class="affected-chip unaffected" id="sc-code">
+          <span class="indicator"></span>代码文件
+        </div>
+        <div class="affected-chip affected" id="sc-convo">
+          <span class="indicator"></span>对话历史
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot cp"></span> Checkpoint 点</div>
+  <div class="legend-item"><span class="legend-dot normal"></span> 普通消息</div>
+  <div class="legend-item"><span class="legend-dot summary"></span> 被压缩/撤销</div>
+</div>
+
+<script>
+(function() {
+  // === State ===
+  let currentMode = 'restore'; // 'restore' | 'summarize'
+  let summarizeSub = 'forward'; // 'forward' | 'backward'
+  let isAnimating = false;
+  let autoPlayTimer = null;
+
+  // === DOM refs ===
+  const restoreTimeline = document.getElementById('restore-timeline');
+  const summarizeTimeline = document.getElementById('summarize-timeline');
+  const cpLabelRestore = document.getElementById('cp-label-restore');
+  const subToggleBtns = document.querySelectorAll('.sub-toggle-btn');
+  const modeTabs = document.querySelectorAll('.mode-tab');
+  const rcCode = document.getElementById('rc-code');
+  const rcConvo = document.getElementById('rc-convo');
+  const scCode = document.getElementById('sc-code');
+  const scConvo = document.getElementById('sc-convo');
+
+  // Reset state
+  function resetAll() {
+    // Restore column
+    const rMsgs = restoreTimeline.querySelectorAll('.msg-row');
+    rMsgs.forEach(m => {
+      m.classList.remove('fading', 'collapsing');
+      m.style.opacity = '';
+      m.style.transform = '';
+    });
+    const rDots = restoreTimeline.querySelectorAll('.msg-dot');
+    rDots.forEach(d => {
+      d.classList.remove('highlight');
+      d.style.transform = '';
+      d.style.boxShadow = '';
+    });
+    // Remove any injected summary cards
+    const summaryCards = summarizeTimeline.querySelectorAll('.summary-injected');
+    summaryCards.forEach(c => c.remove());
+    // Summarize column
+    const sMsgs = summarizeTimeline.querySelectorAll('.msg-row');
+    sMsgs.forEach(m => {
+      m.classList.remove('fading', 'collapsing', 'summary-appear');
+      m.style.opacity = '';
+      m.style.transform = '';
+      m.style.marginBottom = '';
+      m.style.display = '';
+    });
+    const sDots = summarizeTimeline.querySelectorAll('.msg-dot');
+    sDots.forEach(d => {
+      d.classList.remove('highlight');
+      d.style.transform = '';
+      d.style.boxShadow = '';
+    });
+    // Labels
+    cpLabelRestore.classList.remove('visible');
+    // Affected chips - default: restore=both affected, summarize=convo only
+    rcCode.className = 'affected-chip affected';
+    rcConvo.className = 'affected-chip affected';
+    rcCode.style.borderColor = '';
+    rcConvo.style.borderColor = '';
+    scCode.className = 'affected-chip unaffected';
+    scConvo.className = 'affected-chip affected';
+    scCode.style.borderColor = '';
+    scConvo.style.borderColor = '';
+  }
+
+  // === Restore Animation ===
+  // Messages after CP (idx 5,6,7) fade out; CP message stays
+  function animateRestore() {
+    return new Promise(resolve => {
+      const rMsgs = restoreTimeline.querySelectorAll('.msg-row');
+      // Show CP label
+      cpLabelRestore.classList.add('visible');
+      // Highlight CP dot
+      const cpDot = rMsgs[4]?.querySelector('.msg-dot');
+      if (cpDot) {
+        cpDot.style.transform = 'scale(1.4)';
+        cpDot.style.boxShadow = '0 0 16px var(--accent-restore-dim)';
+      }
+      // Delay then fade out after-checkpoint messages
+      setTimeout(() => {
+        for (let i = 5; i < rMsgs.length; i++) {
+          rMsgs[i].classList.add('fading');
+        }
+        // Pulse affected chips
+        rcCode.style.borderColor = 'rgba(224,108,117,0.6)';
+        rcConvo.style.borderColor = 'rgba(224,108,117,0.6)';
+        setTimeout(resolve, 1200);
+      }, 600);
+    });
+  }
+
+  // === Summarize Animations ===
+  function animateSummarize() {
+    return new Promise(resolve => {
+      const sMsgs = summarizeTimeline.querySelectorAll('.msg-row');
+      // Remove old summary cards
+      summarizeTimeline.querySelectorAll('.summary-injected').forEach(c => c.remove());
+
+      const cpIdx = 2; // checkpoint is at index 2
+      const cpDot = sMsgs[cpIdx]?.querySelector('.msg-dot');
+
+      // Highlight checkpoint dot
+      if (cpDot) {
+        cpDot.classList.add('highlight');
+      }
+
+      let collapsingRange;
+      if (summarizeSub === 'forward') {
+        // Compress messages AFTER checkpoint (idx 3,4,5,6,7)
+        collapsingRange = [3, 4, 5, 6, 7];
+      } else {
+        // Compress messages BEFORE checkpoint (idx 0,1)
+        collapsingRange = [0, 1];
+      }
+
+      // Highlight collapsing dots first
+      collapsingRange.forEach(i => {
+        const dot = sMsgs[i]?.querySelector('.msg-dot');
+        if (dot) dot.classList.add('highlight');
+      });
+
+      // After brief highlight, collapse
+      setTimeout(() => {
+        collapsingRange.forEach((i, delayIdx) => {
+          setTimeout(() => {
+            sMsgs[i].classList.add('collapsing');
+          }, delayIdx * 120);
+        });
+
+        // After collapse, insert summary card
+        const totalCollapse = collapsingRange.length * 120 + 700;
+        setTimeout(() => {
+          // Remove collapsed rows
+          collapsingRange.forEach(i => {
+            if (sMsgs[i]) sMsgs[i].style.display = 'none';
+          });
+
+          // Create summary card
+          const summaryRow = document.createElement('div');
+          summaryRow.className = 'msg-row summary-injected summary-appear';
+          const summaryText = summarizeSub === 'forward'
+            ? 'AI 摘要：尝试了事件监听器、连接池、循环引用等方案，最终定位到缓存层循环引用'
+            : 'AI 摘要：之前的调试记录——检查了事件监听器和连接池，排除了常见泄漏源，开始深入排查';
+          summaryRow.innerHTML = `
+            <div class="msg-dot" style="background:var(--accent-summarize);box-shadow:0 0 12px var(--accent-summarize-dim)"></div>
+            <div class="msg-bubble summary-card">${summaryText}</div>
+          `;
+
+          // Insert at appropriate position
+          if (summarizeSub === 'forward') {
+            // Insert after checkpoint (idx 2)
+            sMsgs[cpIdx].after(summaryRow);
+          } else {
+            // Insert before checkpoint (idx 2)
+            sMsgs[cpIdx].before(summaryRow);
+          }
+
+          // Highlight affected chips
+          scCode.className = 'affected-chip unaffected';
+          scConvo.className = 'affected-chip affected';
+          scConvo.style.borderColor = 'rgba(86,182,194,0.5)';
+
+          resolve();
+        }, totalCollapse);
+      }, 500);
+    });
+  }
+
+  // === Run current animation ===
+  async function runAnimation() {
+    if (isAnimating) return;
+    isAnimating = true;
+    resetAll();
+
+    if (currentMode === 'restore') {
+      await animateRestore();
+    } else {
+      await animateSummarize();
+    }
+
+    isAnimating = false;
+  }
+
+  // === Auto-play sequence ===
+  function autoPlay() {
+    resetAll();
+    // Switch to restore
+    currentMode = 'restore';
+    updateModeTabs();
+    updateSubToggle();
+    // Animate restore
+    runAnimation().then(() => {
+      // After 2s, switch to summarize
+      autoPlayTimer = setTimeout(() => {
+        currentMode = 'summarize';
+        summarizeSub = 'forward';
+        updateModeTabs();
+        updateSubToggle();
+        runAnimation();
+      }, 2000);
+    });
+  }
+
+  // === UI Helpers ===
+  function updateModeTabs() {
+    modeTabs.forEach(t => {
+      t.classList.remove('active', 'restore-tab', 'summarize-tab');
+      if (t.dataset.mode === currentMode) {
+        t.classList.add('active');
+        t.classList.add(currentMode === 'restore' ? 'restore-tab' : 'summarize-tab');
+      }
+    });
+  }
+
+  function updateSubToggle() {
+    subToggleBtns.forEach(b => {
+      b.classList.toggle('active', b.dataset.sub === summarizeSub);
+    });
+  }
+
+  // === Event Listeners ===
+  modeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (isAnimating) return;
+      if (autoPlayTimer) clearTimeout(autoPlayTimer);
+      currentMode = tab.dataset.mode;
+      updateModeTabs();
+      updateSubToggle();
+      runAnimation();
+    });
+  });
+
+  subToggleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (isAnimating) return;
+      if (currentMode !== 'summarize') {
+        // Switch to summarize mode if clicking sub-toggle
+        currentMode = 'summarize';
+        updateModeTabs();
+      }
+      if (autoPlayTimer) clearTimeout(autoPlayTimer);
+      summarizeSub = btn.dataset.sub;
+      updateSubToggle();
+      runAnimation();
+    });
+  });
+
+  window.replayAll = function() {
+    if (isAnimating) return;
+    if (autoPlayTimer) clearTimeout(autoPlayTimer);
+    resetAll();
+    autoPlay();
+  };
+
+  // === Init: auto-play on load ===
+  autoPlay();
+})();
+</script>
+</body>
+</html>

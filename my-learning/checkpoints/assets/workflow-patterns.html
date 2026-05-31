@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Checkpoints — Workflow Patterns</title>
+<style>
+  :root {
+    --bg: #08080c;
+    --surface: #111118;
+    --border: #1e1e2a;
+    --text: #e4e4ec;
+    --text2: #8888a0;
+    --text3: #555568;
+    --blue: #4d94ff;
+    --amber: #f0a030;
+    --purple: #a078ff;
+    --orange: #f07040;
+    --green: #3cc980;
+    --font-mono: 'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,monospace;
+    --font-sans: -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-sans);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:32px 20px 48px;
+  }
+  .header{
+    text-align:center;
+    margin-bottom:32px;
+    max-width:680px;
+  }
+  .header h1{
+    font-family:var(--font-mono);
+    font-size:26px;
+    font-weight:600;
+    letter-spacing:-0.02em;
+    color:var(--text);
+  }
+  .header h1 span{color:var(--blue)}
+  .header p{
+    margin-top:8px;
+    font-size:14px;
+    color:var(--text2);
+    line-height:1.6;
+  }
+
+  /* Tab Bar */
+  .tab-bar{
+    display:flex;
+    gap:4px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:4px;
+    margin-bottom:28px;
+  }
+  .tab-btn{
+    font-family:var(--font-mono);
+    font-size:13px;
+    font-weight:500;
+    color:var(--text2);
+    background:transparent;
+    border:none;
+    border-radius:7px;
+    padding:9px 20px;
+    cursor:pointer;
+    transition:all 0.25s ease;
+    white-space:nowrap;
+    letter-spacing:-0.01em;
+  }
+  .tab-btn:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+  .tab-btn.active{
+    color:#fff;
+    background:rgba(255,255,255,0.08);
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
+  }
+  .tab-num{
+    display:inline-block;
+    font-size:10px;
+    font-weight:700;
+    color:var(--text3);
+    margin-right:6px;
+    min-width:16px;
+  }
+  .tab-btn.active .tab-num{color:var(--blue)}
+
+  /* Canvas */
+  .canvas-wrap{
+    width:100%;
+    max-width:1020px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:14px;
+    overflow:hidden;
+    position:relative;
+  }
+  .canvas-wrap svg{display:block;width:100%;height:auto}
+
+  /* Controls */
+  .controls{
+    display:flex;
+    gap:10px;
+    margin-top:24px;
+  }
+  .ctrl-btn{
+    font-family:var(--font-mono);
+    font-size:12px;
+    font-weight:500;
+    color:var(--text2);
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:9px 18px;
+    cursor:pointer;
+    transition:all 0.2s ease;
+    letter-spacing:-0.01em;
+    display:flex;
+    align-items:center;
+    gap:7px;
+  }
+  .ctrl-btn:hover{
+    color:var(--text);
+    border-color:var(--text3);
+    background:#181820;
+  }
+  .ctrl-btn svg{width:14px;height:14px;opacity:0.6}
+  .ctrl-btn:hover svg{opacity:1}
+
+  /* SVG Node Animations */
+  .flow-node{
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity 0.45s cubic-bezier(0.22,0.61,0.36,1),
+               transform 0.45s cubic-bezier(0.22,0.61,0.36,1);
+  }
+  .flow-node.revealed{opacity:1;transform:translateY(0)}
+  .flow-arrow{
+    stroke-dasharray:var(--arrow-len);
+    stroke-dashoffset:var(--arrow-len);
+    transition:stroke-dashoffset 0.55s cubic-bezier(0.22,0.61,0.36,1);
+  }
+  .flow-arrow.revealed{stroke-dashoffset:0}
+
+  /* Mobile */
+  .mobile-flow{
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    gap:0;
+    padding:32px 20px;
+  }
+  .mobile-node{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:14px 20px;
+    border-radius:10px;
+    font-family:var(--font-mono);
+    font-size:13px;
+    font-weight:500;
+    min-width:220px;
+    opacity:0;
+    transform:translateY(10px);
+    transition:opacity 0.4s ease,transform 0.4s ease;
+  }
+  .mobile-node.revealed{opacity:1;transform:translateY(0)}
+  .mobile-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .mobile-connector{
+    width:2px;
+    height:24px;
+    background:var(--border);
+    opacity:0;
+    transition:opacity 0.3s ease;
+  }
+  .mobile-connector.revealed{opacity:1}
+
+  @media(max-width:700px){
+    .canvas-wrap{display:none}
+    .mobile-flow{display:flex}
+    .tab-bar{flex-wrap:wrap;justify-content:center}
+    .tab-btn{padding:7px 14px;font-size:12px}
+    .header h1{font-size:22px}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Claude Code <span>Checkpoints</span></h1>
+  <p>4 Workflow Patterns &mdash; Master checkpoint-driven development with animated flow diagrams</p>
+</div>
+
+<div class="tab-bar" id="tabBar">
+  <button class="tab-btn active" data-idx="0"><span class="tab-num">01</span>Branch Exploration</button>
+  <button class="tab-btn" data-idx="1"><span class="tab-num">02</span>Safe Refactoring</button>
+  <button class="tab-btn" data-idx="2"><span class="tab-num">03</span>A-B Testing</button>
+  <button class="tab-btn" data-idx="3"><span class="tab-num">04</span>Error Recovery</button>
+</div>
+
+<div class="canvas-wrap" id="canvasWrap">
+  <svg viewBox="0 0 1020 420" id="mainSvg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#4d94ff"/></marker>
+      <marker id="arrowAmber" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#f0a030"/></marker>
+      <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#a078ff"/></marker>
+      <marker id="arrowOrange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#f07040"/></marker>
+      <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#3cc980"/></marker>
+      <marker id="arrowGray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#555568"/></marker>
+    </defs>
+    <g id="patternGroup"></g>
+  </svg>
+</div>
+
+<div class="mobile-flow" id="mobileFlow"></div>
+
+<div class="controls">
+  <button class="ctrl-btn" id="btnReplay" title="Replay current pattern">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8a6 6 0 0 1 10.47-4M14 8a6 6 0 0 1-10.47 4"/><polyline points="12.5,1.5 12.5,4.5 9.5,4.5"/><polyline points="3.5,14.5 3.5,11.5 6.5,11.5"/></svg>
+    Replay
+  </button>
+  <button class="ctrl-btn" id="btnAutoAll" title="Cycle through all 4 patterns">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="4,2 13,8 4,14"/></svg>
+    Auto-Play All
+  </button>
+</div>
+
+<script>
+(function(){
+  const NODE_W = 120, NODE_H = 48, NODE_RX = 10;
+  const DIAMOND_W = 88, DIAMOND_H = 88;
+  const SVG_W = 1020;
+
+  // ── Data helpers ──
+
+  function N(label, icon, color, cx, cy, shape){
+    if (shape === 'diamond') {
+      var hw = DIAMOND_W/2, hh = DIAMOND_H/2;
+      return {label,icon,color,cx,cy,shape:'diamond',w:DIAMOND_W,h:DIAMOND_H,
+              points:[[cx,cy-hh],[cx+hw,cy],[cx,cy+hh],[cx-hw,cy]]};
+    }
+    return {label,icon,color,cx,cy,shape:'rect',w:NODE_W,h:NODE_H, x:cx-NODE_W/2, y:cy-NODE_H/2};
+  }
+
+  function A(x1,y1,x2,y2,color){
+    return {x1,y1,x2,y2,color, len:Math.hypot(x2-x1,y2-y1)};
+  }
+
+  // Auto-space nodes evenly: labels[], icons[], colors[], startX, cy, shapeMap (optional)
+  function rowNodes(labels, icons, colors, startX, cy, spacing, shapeMap){
+    return labels.map(function(l,i){
+      return N(l,icons[i],colors[i], startX + i*spacing, cy, (shapeMap||{})[i]);
+    });
+  }
+
+  // Auto-compute arrows from node list (linear chain). Override per-index color with colorMap.
+  function chainArrows(nodes, colorMap){
+    var arr=[];
+    for (var i=0;i<nodes.length-1;i++){
+      var n1=nodes[i], n2=nodes[i+1];
+      var x1 = n1.shape==='diamond' ? n1.cx+DIAMOND_W/2 : n1.x+NODE_W;
+      var x2 = n2.shape==='diamond' ? n2.cx-DIAMOND_W/2 : n2.x;
+      var c = (colorMap||{})[i] || n1.color;
+      arr.push(A(x1, n1.cy, x2, n2.cy, c));
+    }
+    return arr;
+  }
+
+  // ── 4 Pattern Definitions ──
+
+  var patterns = [];
+
+  // P0: Branch Exploration — 6 nodes horizontal
+  (function(){
+    var nodes = rowNodes(
+      ['Save','Try Plan A','Rewind','Try Plan B','Compare','Pick Best'],
+      ['[S]','[A]','[R]','[B]','[C]','[E]'],
+      ['blue','amber','purple','amber','amber','green'],
+      72, 200, 155
+    );
+    patterns.push({nodes:nodes, arrows:chainArrows(nodes)});
+  })();
+
+  // P1: Safe Refactoring — main line + diamond + branch
+  (function(){
+    var nodes = [
+      N('Auto-Save','[S]','blue',  72, 130),
+      N('Edit Code','[E]','amber', 250, 130),
+      N('Run Tests','[T]','orange',440, 130, 'diamond'),
+      N('Continue','[OK]','green',  652, 64),
+      N('Rewind','[R]','purple', 440, 290),
+      N('Retry','[R]','amber',  250, 290),
+    ];
+    var arrows = [
+      A(132,130, 187,130, 'blue'),          // Save -> Edit
+      A(310,130, 396,130, 'amber'),          // Edit -> Diamond left
+      A(484,108, 588,80, 'green'),           // Diamond right -> Continue
+      A(440,174, 440,246, 'orange'),         // Diamond down -> Rewind
+      A(377,290, 310,290, 'purple'),         // Rewind -> Retry
+    ];
+    patterns.push({nodes:nodes, arrows:arrows, hasBranch:true});
+  })();
+
+  // P2: A-B Testing — 7 nodes horizontal
+  (function(){
+    var nodes = rowNodes(
+      ['Current','Design A','Snapshot','Rewind','Design B','Compare','Select'],
+      ['[O]','[A]','[S]','[R]','[B]','[C]','[E]'],
+      ['blue','amber','amber','purple','amber','amber','green'],
+      72, 200, 135
+    );
+    patterns.push({nodes:nodes, arrows:chainArrows(nodes)});
+  })();
+
+  // P3: Error Recovery — 5 nodes horizontal
+  (function(){
+    var nodes = rowNodes(
+      ['Bug Found','Esc+Esc','Rewind','Fix','Verify'],
+      ['[!]','[X]','[R]','[F]','[V]'],
+      ['amber','amber','purple','amber','green'],
+      80, 200, 195
+    );
+    patterns.push({nodes:nodes, arrows:chainArrows(nodes)});
+  })();
+
+  // ── DOM ──
+  var svg = document.getElementById('mainSvg');
+  var pg = document.getElementById('patternGroup');
+  var mobileFlow = document.getElementById('mobileFlow');
+  var tabBar = document.getElementById('tabBar');
+  var btnReplay = document.getElementById('btnReplay');
+  var btnAutoAll = document.getElementById('btnAutoAll');
+  var activeIdx = 0;
+  var animTimer = null;
+  var autoPlayTimer = null;
+
+  // ── Color helpers ──
+  function fillClr(c){
+    return {blue:'rgba(77,148,255,0.10)',amber:'rgba(240,160,48,0.10)',
+            purple:'rgba(160,120,255,0.10)',orange:'rgba(240,112,64,0.10)',
+            green:'rgba(60,201,128,0.10)'}[c]||'rgba(255,255,255,0.05)';
+  }
+  function strokeClr(c){
+    return {blue:'rgba(77,148,255,0.35)',amber:'rgba(240,160,48,0.35)',
+            purple:'rgba(160,120,255,0.35)',orange:'rgba(240,112,64,0.35)',
+            green:'rgba(60,201,128,0.35)'}[c]||'rgba(255,255,255,0.1)';
+  }
+  function accentClr(c){
+    return {blue:'#4d94ff',amber:'#f0a030',purple:'#a078ff',
+            orange:'#f07040',green:'#3cc980'}[c]||'#8888a0';
+  }
+  function markerUrl(c){
+    return {blue:'url(#arrowBlue)',amber:'url(#arrowAmber)',purple:'url(#arrowPurple)',
+            orange:'url(#arrowOrange)',green:'url(#arrowGreen)'}[c]||'url(#arrowGray)';
+  }
+  function arrowStroke(c){
+    return {blue:'#4d94ff',amber:'#f0a030',purple:'#a078ff',
+            orange:'#f07040',green:'#3cc980'}[c]||'#8888a0';
+  }
+
+  // ── Render SVG ──
+  function renderPattern(idx){
+    var p = patterns[idx];
+    var g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('id','pg');
+    var NS = 'http://www.w3.org/2000/svg';
+
+    // ── Arrows (base + animated overlay) ──
+    p.arrows.forEach(function(a){
+      // Base (dim)
+      var line = document.createElementNS(NS,'line');
+      ['x1','y1','x2','y2'].forEach(function(k){line.setAttribute(k,String(a[k]))});
+      line.setAttribute('stroke','#2a2a38');
+      line.setAttribute('stroke-width','2');
+      line.setAttribute('stroke-linecap','round');
+      line.setAttribute('marker-end', markerUrl(a.color));
+      line.classList.add('flow-arrow');
+      line.style.setProperty('--arrow-len', String(a.len));
+      g.appendChild(line);
+
+      // Overlay (colored, animated)
+      var ol = document.createElementNS(NS,'line');
+      ['x1','y1','x2','y2'].forEach(function(k){ol.setAttribute(k,String(a[k]))});
+      ol.setAttribute('stroke', arrowStroke(a.color));
+      ol.setAttribute('stroke-width','2');
+      ol.setAttribute('stroke-linecap','round');
+      ol.setAttribute('marker-end', markerUrl(a.color));
+      ol.classList.add('flow-arrow');
+      ol.style.setProperty('--arrow-len', String(a.len));
+      g.appendChild(ol);
+    });
+
+    // ── Branch labels (Pattern 1 only) ──
+    if (p.hasBranch){
+      var pl = document.createElementNS(NS,'text');
+      pl.setAttribute('x','522'); pl.setAttribute('y','78');
+      pl.setAttribute('fill','#3cc980');
+      pl.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+      pl.setAttribute('font-size','11'); pl.setAttribute('font-weight','600');
+      pl.textContent = 'PASS';
+      pl.classList.add('flow-node');
+      pl.classList.add('branch-label');
+      g.appendChild(pl);
+
+      var fl = document.createElementNS(NS,'text');
+      fl.setAttribute('x','454'); fl.setAttribute('y','216');
+      fl.setAttribute('fill','#f07040');
+      fl.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+      fl.setAttribute('font-size','11'); fl.setAttribute('font-weight','600');
+      fl.textContent = 'FAIL';
+      fl.classList.add('flow-node');
+      fl.classList.add('branch-label');
+      g.appendChild(fl);
+    }
+
+    // ── Nodes ──
+    p.nodes.forEach(function(n){
+      var ng = document.createElementNS(NS,'g');
+      ng.classList.add('flow-node');
+
+      if (n.shape === 'diamond'){
+        var poly = document.createElementNS(NS,'polygon');
+        poly.setAttribute('points', n.points.map(function(pt){return pt.join(',')}).join(' '));
+        poly.setAttribute('fill','#111118');
+        poly.setAttribute('stroke', accentClr(n.color));
+        poly.setAttribute('stroke-width','1.5');
+        ng.appendChild(poly);
+
+        var txt = document.createElementNS(NS,'text');
+        txt.setAttribute('x',String(n.cx));
+        txt.setAttribute('y',String(n.cy+5));
+        txt.setAttribute('text-anchor','middle');
+        txt.setAttribute('fill', accentClr(n.color));
+        txt.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+        txt.setAttribute('font-size','13'); txt.setAttribute('font-weight','600');
+        txt.textContent = n.label;
+        ng.appendChild(txt);
+      } else {
+        // Rect
+        var rect = document.createElementNS(NS,'rect');
+        rect.setAttribute('x',String(n.x)); rect.setAttribute('y',String(n.y));
+        rect.setAttribute('width',String(NODE_W)); rect.setAttribute('height',String(NODE_H));
+        rect.setAttribute('rx',String(NODE_RX));
+        rect.setAttribute('fill', fillClr(n.color));
+        rect.setAttribute('stroke', strokeClr(n.color));
+        rect.setAttribute('stroke-width','1');
+        ng.appendChild(rect);
+
+        // Icon circle
+        var circle = document.createElementNS(NS,'circle');
+        circle.setAttribute('cx',String(n.x+20)); circle.setAttribute('cy',String(n.y+24));
+        circle.setAttribute('r','8');
+        circle.setAttribute('fill', n.color==='blue'?'rgba(77,148,255,0.18)':
+                                  n.color==='amber'?'rgba(240,160,48,0.18)':
+                                  n.color==='purple'?'rgba(160,120,255,0.18)':
+                                  n.color==='green'?'rgba(60,201,128,0.18)':'rgba(255,255,255,0.08)');
+        ng.appendChild(circle);
+
+        // Icon letter
+        var itxt = document.createElementNS(NS,'text');
+        itxt.setAttribute('x',String(n.x+20)); itxt.setAttribute('y',String(n.y+28));
+        itxt.setAttribute('text-anchor','middle');
+        itxt.setAttribute('fill', accentClr(n.color));
+        itxt.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+        itxt.setAttribute('font-size','11'); itxt.setAttribute('font-weight','700');
+        itxt.textContent = n.icon;
+        ng.appendChild(itxt);
+
+        // Label
+        var txt2 = document.createElementNS(NS,'text');
+        txt2.setAttribute('x',String(n.x+36)); txt2.setAttribute('y',String(n.y+29));
+        txt2.setAttribute('text-anchor','start');
+        txt2.setAttribute('fill','#d0d0dc');
+        txt2.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+        txt2.setAttribute('font-size','13'); txt2.setAttribute('font-weight','500');
+        txt2.textContent = n.label;
+        ng.appendChild(txt2);
+      }
+      g.appendChild(ng);
+    });
+
+    // Pattern number label
+    var t = document.createElementNS(NS,'text');
+    t.setAttribute('x','24'); t.setAttribute('y','28');
+    t.setAttribute('fill','rgba(255,255,255,0.22)');
+    t.setAttribute('font-family','SF Mono,Fira Code,Cascadia Code,monospace');
+    t.setAttribute('font-size','10'); t.setAttribute('font-weight','500');
+    t.setAttribute('letter-spacing','0.08em');
+    t.textContent = 'PATTERN ' + (idx+1).toString().padStart(2,'0');
+    g.appendChild(t);
+
+    var old = document.getElementById('pg');
+    if (old) old.remove();
+    pg.appendChild(g);
+
+    buildMobile(p, idx);
+  }
+
+  // ── Mobile ──
+  function buildMobile(p, idx){
+    mobileFlow.innerHTML = '';
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:rgba(255,255,255,0.22);letter-spacing:0.08em;margin-bottom:8px;text-align:center';
+    hdr.textContent = 'PATTERN ' + (idx+1).toString().padStart(2,'0');
+    mobileFlow.appendChild(hdr);
+
+    p.nodes.forEach(function(n,i){
+      if (i>0){
+        var conn = document.createElement('div');
+        conn.className = 'mobile-connector';
+        mobileFlow.appendChild(conn);
+      }
+      var nd = document.createElement('div');
+      nd.className = 'mobile-node';
+      var clr = accentClr(n.color);
+      nd.style.cssText = 'background:'+fillClr(n.color)+
+        ';border:1px solid '+strokeClr(n.color);
+      nd.innerHTML = '<span class="mobile-dot" style="background:'+clr+'"></span>'+
+        '<span style="color:'+clr+';font-weight:700;min-width:20px">'+n.icon+'</span>'+
+        '<span style="color:#d0d0dc">'+n.label+'</span>';
+      mobileFlow.appendChild(nd);
+    });
+  }
+
+  // ── Animate ──
+  function animatePattern(idx){
+    clearTimeout(animTimer);
+    var g = document.getElementById('pg');
+    if (!g) return;
+
+    // Reset
+    g.querySelectorAll('.flow-node').forEach(function(n){n.classList.remove('revealed')});
+    g.querySelectorAll('.flow-arrow').forEach(function(a){a.classList.remove('revealed')});
+
+    // Collect node groups (g elements) in DOM order, skip branch labels
+    var nodes = [];
+    g.querySelectorAll('.flow-node').forEach(function(n){
+      if (n.tagName === 'g') nodes.push(n);
+    });
+
+    // Collect arrows: base + overlay pairs
+    var allArrows = g.querySelectorAll('.flow-arrow');
+    var arrowPairs = [];
+    for (var i=0; i<allArrows.length; i+=2){
+      arrowPairs.push([allArrows[i], allArrows[i+1]]);
+    }
+
+    // Reveal sequence: arrow_pair_i + node_i, staggered
+    var stepMs = 380;
+    var totalDelay = 0;
+
+    function reveal(i){
+      if (i >= nodes.length) return;
+      // Reveal arrow pair ahead of node
+      if (i < arrowPairs.length){
+        (function(pair,d){
+          setTimeout(function(){
+            pair[0].classList.add('revealed');
+            pair[1].classList.add('revealed');
+          }, d);
+        })(arrowPairs[i], totalDelay);
+      }
+      // Reveal node slightly after arrow starts
+      (function(node,d){
+        setTimeout(function(){ node.classList.add('revealed'); }, d+120);
+      })(nodes[i], totalDelay);
+
+      totalDelay += stepMs;
+      animTimer = setTimeout(function(){ reveal(i+1); }, stepMs);
+    }
+
+    // Branch labels: reveal at appropriate timing (after diamond for P1)
+    var labels = g.querySelectorAll('.branch-label');
+    if (labels.length){
+      setTimeout(function(){
+        labels[0].classList.add('revealed'); // PASS
+        labels[1].classList.add('revealed'); // FAIL
+      }, totalDelay - stepMs + 200);
+    }
+
+    // Mobile
+    var mNodes = mobileFlow.querySelectorAll('.mobile-node');
+    var mConns = mobileFlow.querySelectorAll('.mobile-connector');
+    mNodes.forEach(function(n){n.classList.remove('revealed')});
+    mConns.forEach(function(c){c.classList.remove('revealed')});
+    mNodes.forEach(function(n,i){
+      setTimeout(function(){
+        if (i>0 && mConns[i-1]) mConns[i-1].classList.add('revealed');
+        n.classList.add('revealed');
+      }, 100 + i*320);
+    });
+
+    setTimeout(function(){ reveal(0); }, 50);
+  }
+
+  // ── Switch ──
+  function switchPattern(idx){
+    activeIdx = idx;
+    clearTimeout(autoPlayTimer);
+    autoPlayTimer = null;
+    tabBar.querySelectorAll('.tab-btn').forEach(function(b,i){b.classList.toggle('active',i===idx)});
+    renderPattern(idx);
+    setTimeout(function(){ animatePattern(idx); }, 80);
+  }
+
+  // ── Auto-play all ──
+  function autoPlayAll(){
+    clearTimeout(autoPlayTimer);
+    var seq = 0;
+    function next(){
+      switchPattern(seq);
+      seq++;
+      if (seq < 4){ autoPlayTimer = setTimeout(next, 3800); }
+      else { autoPlayTimer = setTimeout(function(){ switchPattern(0); }, 3800); }
+    }
+    next();
+  }
+
+  // ── Events ──
+  tabBar.addEventListener('click', function(e){
+    var btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    var idx = parseInt(btn.getAttribute('data-idx'));
+    if (idx !== activeIdx) switchPattern(idx);
+  });
+  btnReplay.addEventListener('click', function(){ animatePattern(activeIdx); });
+  btnAutoAll.addEventListener('click', autoPlayAll);
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowLeft' && activeIdx > 0) switchPattern(activeIdx-1);
+    if (e.key === 'ArrowRight' && activeIdx < 3) switchPattern(activeIdx+1);
+    if (e.key === 'r' || e.key === 'R') animatePattern(activeIdx);
+  });
+
+  // ── Init ──
+  renderPattern(0);
+  setTimeout(function(){ animatePattern(0); }, 300);
+})();
+</script>
+
+</body>
+</html>

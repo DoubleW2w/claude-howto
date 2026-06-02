@@ -482,6 +482,8 @@ cp 02-memory/personal-CLAUDE.md ~/.claude/CLAUDE.md
 | **MCP Elicitation** | MCP servers can request user input during tool execution | Handle via `Elicitation` and `ElicitationResult` hook events |
 | **Plugin LSP Support** | Language Server Protocol integration via plugins | Configure LSP servers in `plugin.json` for editor features |
 | **Managed Drop-ins** | Organization-managed drop-in configurations (v2.1.83) | Admin-configured via managed policies; auto-applied to all users |
+| **`claude plugin init`** | Scaffold a new plugin in `.claude/skills`; such plugins auto-load with no marketplace (v2.1.157) | Run `claude plugin init <name>` |
+| **Auto Mode on Bedrock/Vertex/Foundry** | Auto mode available on third-party providers for Opus 4.7/4.8 — opt-in (v2.1.158) | Set `CLAUDE_CODE_ENABLE_AUTO_MODE=1` |
 
 ---
 
@@ -541,12 +543,14 @@ chmod +x ~/.claude/hooks/*.sh
 
 ---
 
-**Last Updated**: May 29, 2026
-**Claude Code Version**: 2.1.156
+**Last Updated**: June 2, 2026
+**Claude Code Version**: 2.1.160
 **Sources**:
 - https://code.claude.com/docs/en/overview
 - https://code.claude.com/docs/en/commands
 - https://code.claude.com/docs/en/hooks
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.145
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.154
+- https://code.claude.com/docs/en/plugins
+- https://code.claude.com/docs/en/cli-reference
 **Compatible Models**: Claude Sonnet 4.6, Claude Opus 4.8, Claude Haiku 4.5

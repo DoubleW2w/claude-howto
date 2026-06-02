@@ -429,6 +429,8 @@ claude --enable-auto-mode
 
 > **v2.1.112 update**: Auto mode no longer requires the `--enable-auto-mode` flag. Max subscribers access it directly on Opus 4.7.
 
+> **v2.1.158 update**: Auto mode is now available on Bedrock, Vertex, and Foundry for Opus 4.7/4.8 — **opt in** by setting `CLAUDE_CODE_ENABLE_AUTO_MODE=1`.
+
 Or set it as the default permission mode:
 
 ```bash
@@ -749,7 +751,7 @@ For a one-off task you already understand, a single agent (or a direct edit) is 
 
 - **Launch**: ask Claude to create a workflow for the task (e.g. "run a workflow to review every file in `src/`"). Claude authors the orchestration script and runs it in the background.
 - **View**: the `/workflows` command shows running and completed workflow runs with live progress.
-- **`ultracode`**: selecting `ultracode` in the `/effort` menu turns this on for the session — it sends `xhigh` to the model *and* has Claude orchestrate dynamic workflows by default. It is session-only and not accepted in the settings file.
+- **`ultracode`**: selecting `ultracode` in the `/effort` menu turns this on for the session — it sends `xhigh` to the model *and* has Claude orchestrate dynamic workflows by default. It is session-only and not accepted in the settings file. (As of v2.1.160 the trigger keyword is `ultracode`; the bare word "workflow" no longer triggers a run.)
 
 Workflows build on the subagent model — see [Subagents](../04-subagents/README.md) for how individual agents are defined and scoped.
 
@@ -851,6 +853,8 @@ Permission modes control what actions Claude can take without explicit approval.
 | `dontAsk` | Only pre-approved tools execute; all others denied |
 
 Cycle through modes with `Shift+Tab` in the CLI. Set a default with the `--permission-mode` flag or the `permissions.defaultMode` setting.
+
+As of v2.1.160, even `acceptEdits` prompts before writing shell-startup files (`.zshenv`, `.zlogin`, `.bash_login`, `~/.config/git/`) and code-executing build configs (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `.bazelrc`, `.pre-commit-config.yaml`, `.devcontainer/`, …), which could otherwise lead to unintended command execution.
 
 > **`--dangerously-skip-permissions` extended path coverage (v2.1.121, v2.1.126)**: The `--dangerously-skip-permissions` CLI flag (and equivalent `bypassPermissions` mode) now bypasses prompts for writes to a much broader allowlist — `.claude/skills/`, `.claude/agents/`, `.claude/commands/`, `.claude/`, `.git/`, `.vscode/`, and shell config files. Catastrophic removal commands (`rm -rf /`, etc.) still prompt regardless of mode. Treat the flag as a sharper tool than before; use it only in throwaway sandboxes.
 
@@ -1836,9 +1840,12 @@ Trade-off: `"none"` removes the safety net of worktree isolation — concurrent 
 
 | Item | Description |
 |------|-------------|
+| `EnterWorktree` | Tool to enter a worktree; as of v2.1.157 it can switch between Claude-managed worktrees mid-session |
 | `ExitWorktree` | Tool to exit and clean up the current worktree |
 | `WorktreeCreate` | Hook event fired when a worktree is created |
 | `WorktreeRemove` | Hook event fired when a worktree is removed |
+
+As of v2.1.157, worktrees managed by Claude are left unlocked when the agent finishes, so `git worktree remove`/`prune` can clean them up.
 
 ### Auto-Cleanup
 
@@ -2294,8 +2301,8 @@ For more information about Claude Code and related features:
 
 ---
 
-**Last Updated**: May 29, 2026
-**Claude Code Version**: 2.1.156
+**Last Updated**: June 2, 2026
+**Claude Code Version**: 2.1.160
 **Sources**:
 - https://code.claude.com/docs/en/permission-modes
 - https://code.claude.com/docs/en/interactive-mode
@@ -2307,4 +2314,6 @@ For more information about Claude Code and related features:
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.117
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.139
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.154
+- https://code.claude.com/docs/en/overview
+- https://code.claude.com/docs/en/sub-agents
 **Compatible Models**: Claude Sonnet 4.6, Claude Opus 4.8, Claude Haiku 4.5

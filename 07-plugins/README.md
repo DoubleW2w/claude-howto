@@ -58,6 +58,8 @@ sequenceDiagram
     Tools-->>Claude: Plugin installed ✅
 ```
 
+> **No marketplace required (v2.1.157+)**: Plugins placed in `.claude/skills` directories now auto-load without a marketplace. Scaffold a new one with `claude plugin init <name>`.
+
 ## Plugin Types & Distribution
 
 | Type | Scope | Shared | Authority | Examples |
@@ -1105,8 +1107,8 @@ The following Claude Code features work together with plugins:
 
 ---
 
-**Last Updated**: May 29, 2026
-**Claude Code Version**: 2.1.156
+**Last Updated**: June 2, 2026
+**Claude Code Version**: 2.1.160
 **Sources**:
 - https://code.claude.com/docs/en/plugins
 - https://code.claude.com/docs/en/plugin-marketplaces
@@ -1118,4 +1120,5 @@ The following Claude Code features work together with plugins:
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.141
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.142
 - https://github.com/anthropics/claude-code/releases/tag/v2.1.143
+- https://code.claude.com/docs/en/cli-reference
 **Compatible Models**: Claude Sonnet 4.6, Claude Opus 4.8, Claude Haiku 4.5

@@ -310,9 +310,9 @@ Các cài đặt Claude Code (bao gồm `autoMemoryDirectory`, `claudeMdExcludes
 |-------|----------|-------|
 | 1 (Cao nhất) | Managed policy (cấp hệ thống) | Thực thi toàn tổ chức |
 | 2 | `managed-settings.d/` (v2.1.83+) | Các drop-in chính sách mô-đun, được hợp nhất theo bảng chữ cái |
-| 3 | `~/.claude/settings.json` | Tùy thích người dùng |
+| 3 | `.claude/settings.local.json` | Ghi đè cục bộ (bị git bỏ qua) |
 | 4 | `.claude/settings.json` | Cấp dự án (được commit vào git) |
-| 5 (Thấp nhất) | `.claude/settings.local.json` | Ghi đè cục bộ (bị git bỏ qua) |
+| 5 (Thấp nhất) | `~/.claude/settings.json` | Tùy thích người dùng |
 
 **Cấu hình cụ thể theo nền tảng (v2.1.51+):**
 

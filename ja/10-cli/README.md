@@ -249,7 +249,7 @@ claude -p --json-schema '{"type":"object","properties":{"bugs":{"type":"array"}}
 | `--add-dir` | 追加の作業ディレクトリを指定 | `claude --add-dir ../apps ../lib` |
 | `--setting-sources` | カンマ区切りの設定ソース | `claude --setting-sources user,project` |
 
-> **`/config` の永続化（v2.1.119）**: `/config` コマンドで対話的に行った変更は `~/.claude/settings.json` に書き込まれ、通常の優先順位チェーン（project → local → policy → user）に組み込まれるようになった。v2.1.119 以前は一部の `/config` 変更がセッション限定だった。完全な優先順位については [メモリと設定](../02-memory/README.md) を参照。
+> **`/config` の永続化（v2.1.119）**: `/config` コマンドで対話的に行った変更は `~/.claude/settings.json` に書き込まれ、通常の優先順位チェーン（policy → local → project → user）に組み込まれるようになった。v2.1.119 以前は一部の `/config` 変更がセッション限定だった。完全な優先順位については [メモリと設定](../02-memory/README.md) を参照。
 | `--settings` | ファイルまたは JSON から設定を読み込む | `claude --settings ./settings.json` |
 | `--plugin-dir` | ディレクトリからプラグインを読み込む（複数指定可） | `claude --plugin-dir ./my-plugin` |
 

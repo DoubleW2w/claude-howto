@@ -1,5 +1,58 @@
 # Changelog
 
+## [v2.1.160] — 2026-06-02
+
+### Synced to Claude Code v2.1.160
+
+Bumps tutorial coverage to the Claude Code v2.1.160 release. The intervening
+v2.1.156 sync (Claude Opus 4.8, #129) was applied to the docs but not separately
+changelogged; this entry continues from there and covers the v2.1.157–v2.1.160
+delta. No breaking changes shipped in this range — the additions are a handful
+of new CLI/feature surfaces plus the routine footer bump. Auto mode on
+third-party providers is **opt-in**, not a new default.
+
+### Added
+
+- **`claude plugin init <name>` (v2.1.157)** — scaffolds a new plugin directly
+  in `.claude/skills`; plugins placed there now auto-load with no marketplace
+  required. Documented in `10-cli/README.md`, `07-plugins/README.md`, and
+  `CATALOG.md`.
+- **Auto mode on Bedrock / Vertex / Foundry (v2.1.158)** — auto mode is now
+  available on the three third-party providers for Opus 4.7/4.8, **opt-in** via
+  the `CLAUDE_CODE_ENABLE_AUTO_MODE=1` environment variable. Documented in
+  `09-advanced-features/README.md`, `10-cli/README.md`, and `CATALOG.md`.
+- **`EnterWorktree` mid-session switching (v2.1.157)** — the `EnterWorktree`
+  tool can now switch between Claude-managed worktrees within a session, and
+  finished worktrees are left unlocked so `git worktree remove`/`prune` can
+  clean them up. Documented in `09-advanced-features/README.md`.
+
+### Behavior changes
+
+- **`acceptEdits` write-safety prompts (v2.1.160)** — even in `acceptEdits`
+  mode, Claude Code now prompts before writing shell-startup files (`.zshenv`,
+  `.zlogin`, `.bash_login`, `~/.config/git/`) and code-executing build configs
+  (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `.bazelrc`, `.pre-commit-config.yaml`,
+  `.devcontainer/`), which could otherwise lead to unintended command
+  execution. Documented in `09-advanced-features/README.md`.
+- **Dynamic-workflow trigger keyword `workflow` → `ultracode` (v2.1.160)** — the
+  bare word "workflow" no longer triggers a dynamic-workflow run; the trigger
+  keyword is now `ultracode`. Noted in `09-advanced-features/README.md`.
+
+### Removed
+
+- **`CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE` is now a no-op (v2.1.160)** — the
+  environment variable was removed and now has no effect. The env-var table
+  wording in `10-cli/README.md` was updated from "removed 2026-06-01" to
+  "Removed (no-op as of v2.1.160)".
+
+### Documentation
+
+- Fixed three internally-inconsistent version strings in `README.md` (badge and
+  FAQ prose were stuck at `2.1.145` / `v2.1.150`) and normalized a stale Sources
+  link.
+- Bumped every English doc's metadata footer to **v2.1.160 / June 2, 2026** for
+  a consistent sync.
+
 ## [v2.1.150] — 2026-05-25
 
 ### Synced to Claude Code v2.1.150

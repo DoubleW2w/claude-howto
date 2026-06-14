@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skill 类型优先级覆盖链 — Claude Code Skills</title>
+<style>
+  /* === Design System (verbatim reuse of skills-three-layers.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Priority accents: coral (highest/enterprise) > amber (personal) > teal (project)
+       — gradient runs coral → amber → teal so the top of the ladder "wins" (warm = dominant) */
+    --tier-1: #e06c75;            /* enterprise: coral — highest priority, wins override */
+    --tier-1-dim: rgba(224,108,117,0.16);
+    --tier-1-glow: rgba(224,108,117,0.32);
+    --tier-2: #c88f3f;            /* personal: amber — mid priority */
+    --tier-2-dim: rgba(200,143,63,0.16);
+    --tier-2-glow: rgba(200,143,63,0.30);
+    --tier-3: #56b6c2;            /* project: teal — lowest of the three */
+    --tier-3-dim: rgba(86,182,194,0.16);
+    --tier-3-glow: rgba(86,182,194,0.32);
+    --tier-plugin: #98c379;       /* plugin: green — separate, namespaced, no conflict */
+    --tier-plugin-dim: rgba(152,195,121,0.14);
+    --tier-plugin-glow: rgba(152,195,121,0.28);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to series */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 760px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--tier-1); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  /* === Main: override ladder (left) + priority rail (right) === */
+  .main {
+    width: 100%;
+    max-width: 980px;
+    display: grid;
+    grid-template-columns: 1fr 132px;
+    gap: 32px;
+    align-items: center;
+  }
+
+  /* === Override ladder column === */
+  .ladder {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    position: relative;
+  }
+
+  /* Shared-example banner sits above the ladder */
+  .example-banner {
+    align-self: center;
+    margin-bottom: 18px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-secondary);
+    letter-spacing: 0.04em;
+    text-align: center;
+    opacity: 0;
+    animation: fadeSlide 0.6s var(--ease-out-expo) 0.05s forwards;
+  }
+  .example-banner code {
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+    padding: 2px 9px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 11px;
+  }
+  .example-banner .label {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 9px;
+    margin-right: 8px;
+  }
+
+  /* === Tier card (reuse .layer geometry) === */
+  .tier {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 18px 24px 18px 26px;
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    transition: border-color 0.35s var(--ease-out-expo),
+                box-shadow 0.35s var(--ease-out-expo);
+    opacity: 0;
+    transform: translateY(16px);
+    animation: tierEnter 0.6s var(--ease-out-expo) forwards;
+    /* left color bar — signature series component */
+    border-left: 3px solid currentColor;
+  }
+  .tier.t1 {
+    color: var(--tier-1);
+    border-color: rgba(224,108,117,0.28);
+    box-shadow: 0 0 24px var(--tier-1-dim);
+    animation-delay: 0.15s;
+  }
+  .tier.t2 {
+    color: var(--tier-2);
+    border-color: rgba(200,143,63,0.26);
+    box-shadow: 0 0 24px var(--tier-2-dim);
+    animation-delay: 0.55s;
+  }
+  .tier.t3 {
+    color: var(--tier-3);
+    border-color: rgba(86,182,194,0.26);
+    box-shadow: 0 0 24px var(--tier-3-dim);
+    animation-delay: 0.95s;
+  }
+  @keyframes tierEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Tier index badge */
+  .tier-index {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1;
+    border-radius: var(--radius-md);
+    padding: 10px 0;
+    border: 1px solid currentColor;
+  }
+  .tier-index .sub {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+    opacity: 0.7;
+  }
+  .t1 .tier-index { color: var(--tier-1); background: var(--tier-1-dim); }
+  .t2 .tier-index { color: var(--tier-2); background: var(--tier-2-dim); }
+  .t3 .tier-index { color: var(--tier-3); background: var(--tier-3-dim); }
+
+  /* Tier body */
+  .tier-body { min-width: 0; }
+  .tier-name {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .t1 .tier-name .name { color: var(--tier-1); }
+  .t2 .tier-name .name { color: var(--tier-2); }
+  .t3 .tier-name .name { color: var(--tier-3); }
+  .tier-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    row-gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .tier-meta dt {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+    align-self: center;
+  }
+  .tier-meta dd {
+    color: var(--ink-secondary);
+    min-width: 0;
+  }
+  .tier-meta dd code {
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 10.5px;
+    word-break: break-all;
+  }
+
+  /* Shared badge */
+  .shared-pill {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    opacity: 0.85;
+  }
+  .shared-pill.yes { background: rgba(255,255,255,0.02); }
+  .shared-pill.no {
+    border-color: var(--ink-muted);
+    color: var(--ink-muted);
+    border-style: dashed;
+  }
+
+  /* Right-side priority cell */
+  .tier-rank {
+    text-align: right;
+    font-family: var(--font-mono);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .tier-rank .value {
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .tier-rank .unit {
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.06em;
+    margin-top: 3px;
+    text-transform: uppercase;
+  }
+  .t1 .tier-rank .value { color: var(--tier-1); }
+  .t2 .tier-rank .value { color: var(--tier-2); }
+  .t3 .tier-rank .value { color: var(--tier-3); }
+
+  /* === Override connector (arrow showing "same name overrides below") === */
+  .override {
+    display: grid;
+    grid-template-columns: 48px 1fr 92px;
+    gap: 20px;
+    align-items: center;
+    padding: 6px 0;
+    opacity: 0;
+    animation: fadeSlide 0.5s var(--ease-out-expo) forwards;
+  }
+  .override.o1 { animation-delay: 0.42s; }
+  .override.o2 { animation-delay: 0.82s; }
+  @keyframes fadeSlide { to { opacity: 1; } }
+  .override-gap { /* sits under the index column */ }
+  .override-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .override-label .arrow {
+    font-size: 13px;
+    line-height: 1;
+    color: var(--ink-secondary);
+  }
+  .override-label code {
+    color: var(--ink-secondary);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 10px;
+  }
+
+  /* Winner marker — only on the top tier */
+  .winner {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--tier-1);
+    background: var(--tier-1-dim);
+    border: 1px solid rgba(224,108,117,0.35);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .winner::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--tier-1);
+    box-shadow: 0 0 6px var(--tier-1-glow);
+  }
+
+  /* Dimmed-but-present marker on overridden tiers */
+  .shadowed {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    border: 1px dashed var(--border-active);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* === Priority rail (right) === */
+  .pri-rail {
+    position: relative;
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+  }
+  .pri-rail::before {
+    /* vertical guide line — coral(top/wins) → teal(bottom/loses) */
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: linear-gradient(
+      to bottom,
+      var(--tier-1) 0%, var(--tier-1) 30%,
+      var(--tier-2) 55%, var(--tier-3) 85%, var(--tier-3) 100%
+    );
+    border-radius: 1px;
+    opacity: 0.55;
+  }
+  .rail-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    padding-left: 18px;
+  }
+  .rail-mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    flex: 1;
+  }
+  .rail-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-left: 3px;
+    border: 2px solid var(--bg-deep);
+  }
+  .rail-mark.r1 .rail-dot { background: var(--tier-1); box-shadow: 0 0 8px var(--tier-1-glow); }
+  .rail-mark.r2 .rail-dot { background: var(--tier-2); box-shadow: 0 0 8px var(--tier-2-glow); }
+  .rail-mark.r3 .rail-dot { background: var(--tier-3); box-shadow: 0 0 8px var(--tier-3-glow); }
+  .rail-text {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.35;
+  }
+  .rail-text .big {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .rail-mark.r1 .rail-text .big { color: var(--tier-1); }
+  .rail-mark.r2 .rail-text .big { color: var(--tier-2); }
+  .rail-mark.r3 .rail-text .big { color: var(--tier-3); }
+  .rail-text .small { color: var(--ink-muted); letter-spacing: 0.04em; }
+
+  /* === Plugin branch (separate, namespaced) === */
+  .plugin-zone {
+    margin-top: 30px;
+    width: 100%;
+    max-width: 980px;
+    opacity: 0;
+    animation: fadeSlide 0.7s var(--ease-out-expo) 1.2s forwards;
+  }
+  .plugin-divider {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .plugin-divider .line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--border-active) 30%,
+      var(--border-active) 70%,
+      transparent
+    );
+  }
+  .plugin-divider .tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--tier-plugin);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border: 1px dashed rgba(152,195,121,0.4);
+    border-radius: var(--radius-sm);
+    background: var(--tier-plugin-dim);
+  }
+
+  .plugin-card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--tier-plugin);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 20px 26px;
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    box-shadow: 0 0 24px var(--tier-plugin-dim);
+  }
+  .plugin-index {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1;
+    color: var(--tier-plugin);
+    background: var(--tier-plugin-dim);
+    border: 1px solid var(--tier-plugin);
+    border-radius: var(--radius-md);
+    padding: 12px 0;
+  }
+  .plugin-index .sub {
+    display: block;
+    font-size: 8px;
+    letter-spacing: 0.08em;
+    margin-top: 4px;
+    opacity: 0.7;
+  }
+  .plugin-body { min-width: 0; }
+  .plugin-name {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--tier-plugin);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .plugin-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    row-gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .plugin-meta dt {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+    align-self: center;
+  }
+  .plugin-meta dd {
+    color: var(--ink-secondary);
+    min-width: 0;
+  }
+  .plugin-meta dd code {
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 10.5px;
+  }
+  .namespace {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--tier-plugin);
+    background: var(--tier-plugin-dim);
+    border: 1px solid rgba(152,195,121,0.35);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+  .no-conflict {
+    text-align: right;
+    font-family: var(--font-mono);
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .no-conflict .value {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--tier-plugin);
+    display: block;
+  }
+  .no-conflict .unit {
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.06em;
+    margin-top: 3px;
+    text-transform: uppercase;
+  }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 44px;
+    max-width: 760px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--tier-1);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    animation: fadeSlide 0.7s var(--ease-out-expo) 1.5s forwards;
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    color: var(--tier-1);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl.plugin { color: var(--tier-plugin); }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 28px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.d1 { background: var(--tier-1); box-shadow: 0 0 6px var(--tier-1-dim); }
+  .legend-dot.d2 { background: var(--tier-2); box-shadow: 0 0 6px var(--tier-2-dim); }
+  .legend-dot.d3 { background: var(--tier-3); box-shadow: 0 0 6px var(--tier-3-dim); }
+  .legend-dot.dp { background: var(--tier-plugin); box-shadow: 0 0 6px var(--tier-plugin-dim); }
+
+  /* === Responsive === */
+  @media (max-width: 720px) {
+    .main {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .pri-rail {
+      flex-direction: row;
+      min-height: auto;
+      padding-left: 0;
+      padding-top: 0;
+      align-items: stretch;
+    }
+    .pri-rail::before {
+      left: 12px; right: 12px;
+      top: 8px; bottom: auto;
+      width: auto; height: 2px;
+      background: linear-gradient(
+        to right,
+        var(--tier-1) 0%, var(--tier-1) 25%,
+        var(--tier-2) 55%, var(--tier-3) 85%, var(--tier-3) 100%
+      );
+    }
+    .rail-title { display: none; }
+    .rail-mark { flex-direction: column; align-items: center; text-align: center; gap: 6px; padding-top: 18px; }
+    .rail-dot { margin-left: 0; }
+    .tier, .plugin-card {
+      grid-template-columns: 44px 1fr;
+      padding: 16px 18px;
+    }
+    .tier-rank, .no-conflict {
+      grid-column: 1 / -1;
+      text-align: left;
+      padding-left: 64px;
+      border-top: 1px solid var(--border-subtle);
+      margin-top: 8px;
+      padding-top: 10px;
+    }
+    .override {
+      grid-template-columns: 44px 1fr;
+    }
+    .override-gap { display: none; }
+    .winner, .shadowed {
+      position: static;
+      display: inline-block;
+      margin-bottom: 6px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Skill <span class="accent">类型优先级覆盖链</span></h1>
+  <p>同名 skill 在不同位置同时存在时，高优先级位置胜出：<span style="color:var(--tier-1)">enterprise</span> &gt; <span style="color:var(--tier-2)">personal</span> &gt; <span style="color:var(--tier-3)">project</span>。Plugin 因命名空间隔离，从不参与这场冲突。</p>
+</div>
+
+<div class="main">
+
+  <!-- === Override ladder (left) === -->
+  <div class="ladder">
+
+    <!-- Shared example banner -->
+    <div class="example-banner">
+      <span class="label">贯穿示例</span>三层都定义了一个叫 <code>code-review</code> 的同名 skill
+    </div>
+
+    <!-- Tier 1: Enterprise — WINS -->
+    <div class="tier t1">
+      <div class="tier-index">
+        1<span class="sub">ENT</span>
+      </div>
+      <div class="tier-body">
+        <span class="winner">胜出</span>
+        <div class="tier-name">
+          <span class="name">Enterprise</span>
+          <span class="shared-pill yes">共享</span>
+        </div>
+        <dl class="tier-meta">
+          <dt>位置</dt><dd><code>Managed settings</code>（管理员下发）</dd>
+          <dt>范围</dt><dd>全组织所有用户</dd>
+        </dl>
+      </div>
+      <div class="tier-rank">
+        <div class="value">最高</div>
+        <div class="unit">enterprise</div>
+      </div>
+    </div>
+
+    <!-- Override connector 1 -->
+    <div class="override o1">
+      <div class="override-gap"></div>
+      <div class="override-label">
+        <span class="arrow">↑</span> 同名覆盖 · <code>code-review</code> 的企业版压倒个人版
+      </div>
+      <div></div>
+    </div>
+
+    <!-- Tier 2: Personal — shadowed -->
+    <div class="tier t2">
+      <div class="tier-index">
+        2<span class="sub">PER</span>
+      </div>
+      <div class="tier-body">
+        <span class="shadowed">被覆盖</span>
+        <div class="tier-name">
+          <span class="name">Personal</span>
+          <span class="shared-pill no">不共享</span>
+        </div>
+        <dl class="tier-meta">
+          <dt>位置</dt><dd><code>~/.claude/skills/&lt;name&gt;/SKILL.md</code></dd>
+          <dt>范围</dt><dd>仅个人（跨项目）</dd>
+        </dl>
+      </div>
+      <div class="tier-rank">
+        <div class="value">中</div>
+        <div class="unit">personal</div>
+      </div>
+    </div>
+
+    <!-- Override connector 2 -->
+    <div class="override o2">
+      <div class="override-gap"></div>
+      <div class="override-label">
+        <span class="arrow">↑</span> 同名覆盖 · 个人版又压倒项目版
+      </div>
+      <div></div>
+    </div>
+
+    <!-- Tier 3: Project — shadowed -->
+    <div class="tier t3">
+      <div class="tier-index">
+        3<span class="sub">PRJ</span>
+      </div>
+      <div class="tier-body">
+        <span class="shadowed">被覆盖</span>
+        <div class="tier-name">
+          <span class="name">Project</span>
+          <span class="shared-pill yes">共享</span>
+        </div>
+        <dl class="tier-meta">
+          <dt>位置</dt><dd><code>.claude/skills/&lt;name&gt;/SKILL.md</code></dd>
+          <dt>范围</dt><dd>团队（随 git 共享）</dd>
+        </dl>
+      </div>
+      <div class="tier-rank">
+        <div class="value">最低</div>
+        <div class="unit">project</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- === Priority rail (right) === -->
+  <div class="pri-rail">
+    <div class="rail-title">优先级递减</div>
+    <div class="rail-mark r1">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">enterprise</span><span class="small">胜出</span></span>
+    </div>
+    <div class="rail-mark r2">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">personal</span><span class="small">被覆盖</span></span>
+    </div>
+    <div class="rail-mark r3">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">project</span><span class="small">被覆盖</span></span>
+    </div>
+  </div>
+
+</div>
+
+<!-- === Plugin zone (separate, namespaced) === -->
+<div class="plugin-zone">
+  <div class="plugin-divider">
+    <div class="line"></div>
+    <div class="tag">独立分支 · 不参与上面的覆盖链</div>
+    <div class="line"></div>
+  </div>
+
+  <div class="plugin-card">
+    <div class="plugin-index">
+      P<span class="sub">PLG</span>
+    </div>
+    <div class="plugin-body">
+      <div class="plugin-name">
+        Plugin
+        <span class="namespace">命名空间&nbsp;plugin-name:skill-name</span>
+      </div>
+      <dl class="plugin-meta">
+        <dt>位置</dt><dd><code>&lt;plugin&gt;/skills/&lt;name&gt;/SKILL.md</code></dd>
+        <dt>范围</dt><dd>启用该 plugin 的范围</dd>
+        <dt>共享</dt><dd>视 plugin 分发方式而定</dd>
+      </dl>
+    </div>
+    <div class="no-conflict">
+      <span class="value">不冲突</span>
+      <span class="unit">独立命名空间</span>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d1"></span> Enterprise · 全组织 · 覆盖链最高</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> Personal · 个人 · 被企业版覆盖</div>
+  <div class="legend-item"><span class="legend-dot d3"></span> Project · 团队 git 共享 · 覆盖链最低</div>
+  <div class="legend-item"><span class="legend-dot dp"></span> Plugin · 命名空间隔离 · 不参与冲突</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">为什么 Plugin 独立</div>
+  <p>前三者比的是 <span class="hl">同名</span>——一旦企业版定义了 <code style="color:var(--ink-primary);background:var(--bg-elevated);padding:1px 6px;border-radius:4px;border:1px solid var(--border-subtle);font-size:12px">code-review</code>，个人和项目的同名版就被压制。Plugin 走的是 <span class="hl plugin">plugin-name:skill-name</span> 命名空间，名字根本不同，所以它和覆盖链各自独立、互不相争。</p>
+</div>
+
+</body>
+</html>

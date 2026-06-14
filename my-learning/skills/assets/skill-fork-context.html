@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skills Fork Context 隔离 — Claude Code Skills</title>
+<style>
+  /* === Design System (reused verbatim from skills-three-layers.html / skills-loading-flow.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Series accents: teal (cheap/clean) → amber (mid) → coral (heavy/unbounded) */
+    --layer-1: #56b6c2;            /* main conversation: teal — clean, pristine */
+    --layer-1-dim: rgba(86,182,194,0.16);
+    --layer-1-glow: rgba(86,182,194,0.32);
+    --layer-2: #c88f3f;            /* dispatch/return flow: amber — movement */
+    --layer-2-dim: rgba(200,143,63,0.16);
+    --layer-2-glow: rgba(200,143,63,0.30);
+    --layer-3: #e06c75;            /* fork subagent: coral — heavy intermediate work */
+    --layer-3-dim: rgba(224,108,117,0.16);
+    --layer-3-glow: rgba(224,108,117,0.32);
+
+    /* Neutral accent for the single result token that enters main context */
+    --neutral: #8895ab;
+    --neutral-dim: rgba(136,149,171,0.14);
+    --neutral-glow: rgba(136,149,171,0.24);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to series */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 780px;
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--layer-3); }
+  .header h1 .mono { font-family: var(--font-mono); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  .header p code {
+    font-family: var(--font-mono);
+    color: var(--layer-3);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 11.5px;
+  }
+
+  /* === frontmatter chip === */
+  .frontmatter {
+    display: inline-flex;
+    align-items: stretch;
+    margin: 16px auto 0;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: fmEnter 0.6s var(--ease-out-expo) 0.2s forwards;
+  }
+  @keyframes fmEnter { to { opacity: 1; transform: translateY(0); } }
+  .fm-dots {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 12px 12px;
+    background: var(--bg-elevated);
+    border-right: 1px solid var(--border-subtle);
+  }
+  .fm-dots span {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--border-active);
+  }
+  .fm-body { padding: 10px 16px 10px 14px; line-height: 1.7; text-align: left; }
+  .fm-body .key { color: var(--ink-muted); }
+  .fm-body .val-fork { color: var(--layer-3); }
+  .fm-body .val-agent { color: var(--layer-2); }
+
+  /* === Controls === */
+  .controls {
+    display: flex;
+    justify-content: center;
+    margin: 28px 0 32px;
+  }
+  .replay-btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 9px 22px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--ink-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.25s var(--ease-out-expo);
+    letter-spacing: 0.04em;
+  }
+  .replay-btn:hover {
+    border-color: var(--border-active);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+  }
+  .replay-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* === Stage: two columns === */
+  .stage {
+    width: 100%;
+    max-width: 1080px;
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 110px 1fr;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  /* === Context window card (shared by main + fork) === */
+  .ctx-card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px 16px;
+    overflow: hidden;
+    transition: border-color 0.5s var(--ease-out-expo),
+                box-shadow 0.5s var(--ease-out-expo);
+  }
+  .ctx-card.main { border-color: rgba(86,182,194,0.28); box-shadow: 0 0 24px var(--layer-1-dim); }
+  .ctx-card.fork { border-color: rgba(224,108,117,0.26); box-shadow: 0 0 24px var(--layer-3-dim); }
+
+  /* Left color bar */
+  .ctx-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .ctx-card.main::before { background: var(--layer-1); }
+  .ctx-card.fork::before { background: var(--layer-3); }
+
+  .ctx-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ctx-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 3px;
+  }
+  .ctx-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .ctx-card.main .ctx-name { color: var(--layer-1); }
+  .ctx-card.fork .ctx-name { color: var(--layer-3); }
+  .ctx-meter {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+  }
+  .ctx-meter .num { color: var(--ink-primary); }
+
+  /* Context window body — a fixed-height box that visually fills */
+  .ctx-window {
+    position: relative;
+    background: var(--bg-deep);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    height: 260px;
+    overflow: hidden;
+  }
+  /* faint scanline to suggest a live buffer */
+  .ctx-window::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  }
+
+  /* Fill bar at bottom representing context usage growth */
+  .ctx-fill {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 0;
+    background: linear-gradient(to top,
+      rgba(86,182,194,0.22),
+      rgba(86,182,194,0.04) 80%,
+      transparent);
+    transition: height 0.7s var(--ease-out-expo);
+    z-index: 0;
+  }
+  .ctx-card.fork .ctx-fill {
+    background: linear-gradient(to top,
+      rgba(224,108,117,0.30),
+      rgba(224,108,117,0.06) 80%,
+      transparent);
+  }
+
+  /* Content lines inside the window (chat history representation) */
+  .ctx-lines {
+    position: relative;
+    z-index: 1;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    height: 100%;
+  }
+  .ctx-line {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.4s var(--ease-out-expo),
+                transform 0.4s var(--ease-out-expo);
+    max-width: 86%;
+  }
+  .ctx-line.shown { opacity: 1; transform: translateY(0); }
+  /* role tag */
+  .ctx-line .role {
+    font-size: 8.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-right: 6px;
+  }
+
+  /* Main conversation styling (teal family / neutral) */
+  .ctx-card.main .ctx-line.user {
+    background: var(--layer-1-dim);
+    border: 1px solid rgba(86,182,194,0.22);
+    color: var(--ink-primary);
+  }
+  .ctx-card.main .ctx-line.user .role { color: var(--layer-1); }
+  .ctx-card.main .ctx-line.result {
+    background: rgba(136,149,171,0.10);
+    border: 1px solid var(--border-active);
+    color: var(--ink-secondary);
+    align-self: flex-end;
+    max-width: 78%;
+  }
+  .ctx-card.main .ctx-line.result .role { color: var(--neutral); }
+
+  /* Fork subagent styling (coral family) — intermediate steps */
+  .ctx-card.fork .ctx-line.step {
+    background: rgba(224,108,117,0.10);
+    border: 1px solid rgba(224,108,117,0.22);
+    color: var(--ink-primary);
+    max-width: 92%;
+  }
+  .ctx-card.fork .ctx-line.step .role { color: var(--layer-3); }
+  .ctx-card.fork .ctx-line.step.tool {
+    background: rgba(200,143,63,0.10);
+    border-color: rgba(200,143,63,0.22);
+    font-size: 9.5px;
+    color: var(--ink-secondary);
+    padding-left: 16px;
+  }
+  .ctx-card.fork .ctx-line.step.tool .role { color: var(--layer-2); }
+
+  /* "clean" badge on main window */
+  .clean-badge {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    z-index: 2;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(86,182,194,0.30);
+    background: rgba(86,182,194,0.08);
+    color: var(--layer-1);
+    opacity: 0;
+    transition: opacity 0.5s var(--ease-out-expo);
+  }
+  .clean-badge.shown { opacity: 1; }
+  .clean-badge::before {
+    content: '';
+    display: inline-block;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--layer-1);
+    box-shadow: 0 0 5px var(--layer-1-glow);
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+
+  /* === Channel (the middle dispatch/return corridor) === */
+  .channel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .channel-track {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--border-subtle);
+    transform: translateY(-50%);
+    border-radius: 1px;
+  }
+  /* animated flow particles */
+  .flow {
+    position: absolute;
+    top: 50%;
+    height: 2px;
+    width: 34%;
+    border-radius: 1px;
+    transform: translateY(-50%);
+    opacity: 0;
+  }
+  /* dispatch: left → right (amber) */
+  .flow.dispatch {
+    background: linear-gradient(90deg,
+      transparent, var(--layer-2-glow), var(--layer-2), var(--layer-2-glow), transparent);
+    box-shadow: 0 0 10px var(--layer-2-glow);
+  }
+  .flow.dispatch.go {
+    opacity: 1;
+    animation: flowRight 1.1s var(--ease-in-out);
+  }
+  @keyframes flowRight {
+    0%   { left: -34%; opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { left: 100%; opacity: 0; }
+  }
+  /* return: right → left (teal — clean result) */
+  .flow.return {
+    background: linear-gradient(90deg,
+      transparent, var(--layer-1-glow), var(--layer-1), var(--layer-1-glow), transparent);
+    box-shadow: 0 0 10px var(--layer-1-glow);
+  }
+  .flow.return.go {
+    opacity: 1;
+    animation: flowLeft 1.1s var(--ease-in-out);
+  }
+  @keyframes flowLeft {
+    0%   { left: 100%; opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { left: -34%; opacity: 0; }
+  }
+
+  /* phase label in the channel */
+  .phase-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, calc(-50% - 22px));
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.4s var(--ease-out-expo);
+    pointer-events: none;
+  }
+  .phase-label.dispatch { color: var(--layer-2); }
+  .phase-label.exec { color: var(--layer-3); }
+  .phase-label.return { color: var(--layer-1); }
+  .phase-label.shown { opacity: 1; }
+
+  /* small arrow caps */
+  .channel-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.4s var(--ease-out-expo);
+  }
+  .channel-arrow.right { right: 4px; color: var(--layer-2); }
+  .channel-arrow.left  { left: 4px; color: var(--layer-1); }
+  .channel-arrow.shown { opacity: 0.8; }
+
+  /* === Agent type reference row === */
+  .agent-types {
+    margin-top: 36px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px 16px;
+    position: relative;
+  }
+  .agent-types::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--layer-2);
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  }
+  .at-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-primary);
+    margin-bottom: 4px;
+  }
+  .at-title .label {
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+  .at-sub {
+    font-size: 11.5px;
+    color: var(--ink-secondary);
+    margin-bottom: 14px;
+    line-height: 1.5;
+  }
+  .at-sub code {
+    font-family: var(--font-mono);
+    color: var(--layer-2);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+  }
+  .at-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .at-card {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+  }
+  .at-card .name {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--layer-3);
+    margin-bottom: 4px;
+  }
+  .at-card .desc {
+    font-size: 10.5px;
+    color: var(--ink-secondary);
+    line-height: 1.45;
+  }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 32px;
+    max-width: 780px;
+    text-align: center;
+    padding: 20px 26px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--layer-3);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 13px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl-teal { color: var(--layer-1); font-family: var(--font-mono); font-size: 12px; }
+  .insight p .hl-amber { color: var(--layer-2); font-family: var(--font-mono); font-size: 12px; }
+  .insight p .hl-coral { color: var(--layer-3); font-family: var(--font-mono); font-size: 12px; }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 24px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-dot.d1 { background: var(--layer-1); box-shadow: 0 0 6px var(--layer-1-dim); }
+  .legend-dot.d2 { background: var(--layer-2); box-shadow: 0 0 6px var(--layer-2-dim); }
+  .legend-dot.d3 { background: var(--layer-3); box-shadow: 0 0 6px var(--layer-3-dim); }
+
+  /* === Responsive === */
+  @media (max-width: 860px) {
+    .columns {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 64px auto;
+      gap: 0;
+    }
+    .channel { min-height: 64px; }
+    .channel-track { left: 20%; right: 20%; }
+    .flow.dispatch, .flow.return { width: 24%; }
+    .ctx-window { height: 220px; }
+    .at-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 520px) {
+    .at-grid { grid-template-columns: 1fr; }
+    .ctx-card { padding: 14px 14px 12px; }
+    .ctx-window { height: 200px; }
+    .frontmatter { font-size: 10.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Skills <span class="accent">Fork Context</span> 上下文隔离</h1>
+  <p><code>context: fork</code> 让 skill 在独立 subagent 上下文窗口运行——中间步骤再多也不污染主对话，只有最终结果回传。</p>
+  <div class="frontmatter">
+    <div class="fm-dots"><span></span><span></span><span></span></div>
+    <div class="fm-body">
+      <span class="key">context:</span> <span class="val-fork">fork</span><br>
+      <span class="key">agent:</span> <span class="val-agent">Explore</span>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="replay-btn" id="replay-btn" onclick="replay()">重新演示</button>
+</div>
+
+<div class="stage">
+  <div class="columns">
+
+    <!-- === LEFT: Main conversation === -->
+    <div class="ctx-card main">
+      <div class="ctx-head">
+        <div>
+          <span class="ctx-label">CONTEXT WINDOW · 主对话</span>
+          <div class="ctx-name">Main Thread</div>
+        </div>
+        <div class="ctx-meter">上下文内：<span class="num" id="main-tok">0</span> tok</div>
+      </div>
+      <div class="ctx-window">
+        <div class="clean-badge" id="clean-badge">未被污染</div>
+        <div class="ctx-fill" id="main-fill"></div>
+        <div class="ctx-lines" id="main-lines">
+          <div class="ctx-line user shown">
+            <span class="role">USER</span>帮我找出 auth 模块所有未捕获的异常路径
+          </div>
+          <!-- result line added dynamically at the end -->
+        </div>
+      </div>
+    </div>
+
+    <!-- === MIDDLE: dispatch / return channel === -->
+    <div class="channel">
+      <div class="channel-track"></div>
+      <div class="phase-label dispatch" id="phase-dispatch">派发任务 →</div>
+      <div class="phase-label exec" id="phase-exec">独立执行</div>
+      <div class="phase-label return" id="phase-return">← 回传结果</div>
+      <div class="flow dispatch" id="flow-dispatch"></div>
+      <div class="flow return" id="flow-return"></div>
+      <div class="channel-arrow right" id="arrow-right">▶</div>
+      <div class="channel-arrow left" id="arrow-left">◀</div>
+    </div>
+
+    <!-- === RIGHT: Fork subagent === -->
+    <div class="ctx-card fork">
+      <div class="ctx-head">
+        <div>
+          <span class="ctx-label">CONTEXT WINDOW · 隔离</span>
+          <div class="ctx-name">Fork Subagent <span style="color:var(--ink-muted);font-size:11px;">(Explore)</span></div>
+        </div>
+        <div class="ctx-meter">上下文内：<span class="num" id="fork-tok">0</span> tok</div>
+      </div>
+      <div class="ctx-window">
+        <div class="ctx-fill" id="fork-fill"></div>
+        <div class="ctx-lines" id="fork-lines">
+          <!-- steps injected dynamically by JS -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- === Agent type reference === -->
+<div class="agent-types">
+  <div class="at-title"><span class="label">FRONTMATTER</span><code style="font-family:var(--font-mono);color:var(--layer-3);background:var(--bg-elevated);padding:1px 6px;border-radius:4px;font-size:11px;">agent</code> 指定 subagent 类型</div>
+  <div class="at-sub">配合 <code>context: fork</code> 使用，决定 fork 出来的 subagent 拥有哪些工具与能力：</div>
+  <div class="at-grid">
+    <div class="at-card">
+      <div class="name">Explore</div>
+      <div class="desc">只读研究、代码库分析</div>
+    </div>
+    <div class="at-card">
+      <div class="name">Plan</div>
+      <div class="desc">制定实现计划</div>
+    </div>
+    <div class="at-card">
+      <div class="name">general-purpose</div>
+      <div class="desc">需要全部工具的宽泛任务</div>
+    </div>
+    <div class="at-card">
+      <div class="name">自定义 agents</div>
+      <div class="desc">配置中定义的专用 agent</div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d1"></span> 主对话 · 干净保持</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> 派发 / 回传 · 数据流</div>
+  <div class="legend-item"><span class="legend-dot d3"></span> Fork subagent · 中间步骤隔离</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">为什么用 fork</div>
+  <p>
+    复杂 skill 在 <span class="hl-coral">隔离的上下文窗口</span> 里跑——无论它读多少文件、调多少工具，
+    那些中间 token 都留在右侧。主对话只收到 <span class="hl-teal">一份回传的最终结果</span>，
+    通过 <span class="hl-amber">dispatch → execute → return</span> 三步，窗口始终干净。
+  </p>
+</div>
+
+<script>
+(function() {
+  // === Element refs ===
+  const replayBtn = document.getElementById('replay-btn');
+  const mainLines = document.getElementById('main-lines');
+  const forkLines = document.getElementById('fork-lines');
+  const mainFill = document.getElementById('main-fill');
+  const forkFill = document.getElementById('fork-fill');
+  const mainTok = document.getElementById('main-tok');
+  const forkTok = document.getElementById('fork-tok');
+  const cleanBadge = document.getElementById('clean-badge');
+
+  const flowDispatch = document.getElementById('flow-dispatch');
+  const flowReturn = document.getElementById('flow-return');
+  const phaseDispatch = document.getElementById('phase-dispatch');
+  const phaseExec = document.getElementById('phase-exec');
+  const phaseReturn = document.getElementById('phase-return');
+  const arrowRight = document.getElementById('arrow-right');
+  const arrowLeft = document.getElementById('arrow-left');
+
+  let running = false;
+  let timers = [];
+
+  // Fork intermediate steps — the "noise" that must NOT reach the main window.
+  // Visually these fill the fork window to show heavy intermediate work.
+  const FORK_STEPS = [
+    { role: 'TASK', text: '分析 auth 模块异常路径', cls: 'step' },
+    { role: 'TOOL', text: 'grep -rn "raise\\|except" auth/', cls: 'step tool' },
+    { role: 'TOOL', text: 'read auth/login.py · 312 行', cls: 'step tool' },
+    { role: 'TOOL', text: 'read auth/oauth.py · 248 行', cls: 'step tool' },
+    { role: 'TOOL', text: 'read auth/session.py · 196 行', cls: 'step tool' },
+    { role: 'TOOL', text: 'grep -rn "bare except" --include=*.py', cls: 'step tool' },
+    { role: 'STEP', text: '交叉比对调用链 · 8 处嫌疑', cls: 'step' },
+    { role: 'STEP', text: '验证 3 处确认未捕获', cls: 'step' },
+  ];
+
+  // The single condensed result that returns to main.
+  const RESULT_LINE_HTML =
+    '<div class="ctx-line result" id="main-result">' +
+    '<span class="role">RESULT</span>auth/ 3 处未捕获异常：login.py:142 · oauth.py:88 · session.py:31' +
+    '</div>';
+
+  function clearTimers() {
+    timers.forEach(t => clearTimeout(t));
+    timers = [];
+  }
+
+  function reset() {
+    clearTimers();
+    // main: keep the user line, remove any prior result
+    const prevResult = document.getElementById('main-result');
+    if (prevResult) prevResult.remove();
+    mainFill.style.height = '8%';      // baseline: just the user request
+    mainTok.textContent = '320';
+    cleanBadge.classList.remove('shown');
+    // fork: clear all steps
+    forkLines.innerHTML = '';
+    forkFill.style.height = '0%';
+    forkTok.textContent = '0';
+    // channel: clear flows & labels
+    flowDispatch.classList.remove('go');
+    flowReturn.classList.remove('go');
+    [phaseDispatch, phaseExec, phaseReturn].forEach(el => el.classList.remove('shown'));
+    arrowRight.classList.remove('shown');
+    arrowLeft.classList.remove('shown');
+  }
+
+  function addForkStep(idx) {
+    const s = FORK_STEPS[idx];
+    const el = document.createElement('div');
+    el.className = s.cls + ' ctx-line';
+    el.innerHTML = '<span class="role">' + s.role + '</span>' + s.text;
+    forkLines.appendChild(el);
+    // reveal next tick so transition fires
+    requestAnimationFrame(() => el.classList.add('shown'));
+    // grow the fill + token meter proportionally
+    const pct = 14 + (idx + 1) * 9.5;   // up to ~90%
+    forkFill.style.height = Math.min(92, pct) + '%';
+    animateCounter(forkTok, 0, 4000 + idx * 2200, 500);
+  }
+
+  function fireDispatch() {
+    phaseDispatch.classList.add('shown');
+    arrowRight.classList.add('shown');
+    // restart animation
+    flowDispatch.classList.remove('go');
+    void flowDispatch.offsetWidth;       // reflow to restart
+    flowDispatch.classList.add('go');
+  }
+
+  function fireReturn() {
+    phaseReturn.classList.add('shown');
+    arrowLeft.classList.add('shown');
+    flowReturn.classList.remove('go');
+    void flowReturn.offsetWidth;
+    flowReturn.classList.add('go');
+  }
+
+  function showResult() {
+    mainLines.insertAdjacentHTML('beforeend', RESULT_LINE_HTML);
+    const el = document.getElementById('main-result');
+    requestAnimationFrame(() => el.classList.add('shown'));
+    // main window barely grows — only the result token added
+    mainFill.style.height = '12%';
+    animateCounter(mainTok, 320, 980, 500);
+    cleanBadge.classList.add('shown');
+  }
+
+  function animateCounter(el, from, to, duration) {
+    const t0 = performance.now();
+    function tick(now) {
+      const p = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const val = Math.round(from + (to - from) * eased);
+      el.textContent = val.toLocaleString();
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function run() {
+    if (running) return;
+    running = true;
+    replayBtn.disabled = true;
+    reset();
+
+    // Phase 1: a task needs handling in main (highlight the user line briefly)
+    // (main already has the user line; nothing to add)
+
+    // Phase 2: DISPATCH — task flows left → right to fork
+    timers.push(setTimeout(() => {
+      fireDispatch();
+    }, 600));
+
+    // Phase 3: EXECUTE — fork runs in isolated window, intermediate steps fill it
+    timers.push(setTimeout(() => {
+      phaseDispatch.classList.remove('shown');
+      phaseExec.classList.add('shown');
+      arrowRight.classList.remove('shown');
+    }, 1800));
+
+    FORK_STEPS.forEach((_, i) => {
+      timers.push(setTimeout(() => addForkStep(i), 1800 + i * 520));
+    });
+
+    // Phase 4: RETURN — result flows right → left back to main
+    const execDone = 1800 + FORK_STEPS.length * 520 + 400;
+    timers.push(setTimeout(() => {
+      phaseExec.classList.remove('shown');
+      fireReturn();
+    }, execDone));
+
+    // Phase 5: result lands in main — window barely changes, clean badge appears
+    timers.push(setTimeout(() => {
+      showResult();
+    }, execDone + 1100));
+
+    // finish
+    timers.push(setTimeout(() => {
+      phaseReturn.classList.remove('shown');
+      arrowLeft.classList.remove('shown');
+      running = false;
+      replayBtn.disabled = false;
+    }, execDone + 2200));
+  }
+
+  window.replay = function() {
+    if (running) return;
+    run();
+  };
+
+  // === Auto-play on load ===
+  timers.push(setTimeout(run, 500));
+})();
+</script>
+
+</body>
+</html>

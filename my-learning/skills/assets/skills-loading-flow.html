@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skills 加载流程时序 — Claude Code Skills</title>
+<style>
+  /* === Design System (reused verbatim from skills-three-layers.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Layer accents: cost gradient — teal (cheap/always) → amber (mid) → coral (unbounded) */
+    --layer-1: #56b6c2;            /* metadata: teal — always present, lowest cost */
+    --layer-1-dim: rgba(86,182,194,0.16);
+    --layer-1-glow: rgba(86,182,194,0.32);
+    --layer-2: #c88f3f;            /* instructions: amber — mid cost */
+    --layer-2-dim: rgba(200,143,63,0.16);
+    --layer-2-glow: rgba(200,143,63,0.30);
+    --layer-3: #e06c75;            /* resources: coral — unbounded cost, but NOT in context */
+    --layer-3-dim: rgba(224,108,117,0.16);
+    --layer-3-glow: rgba(224,108,117,0.32);
+
+    /* Neutral accent for user/result steps that don't load a layer */
+    --neutral: #8895ab;
+    --neutral-dim: rgba(136,149,171,0.14);
+    --neutral-glow: rgba(136,149,171,0.24);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to skills-three-layers */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 780px;
+    margin-bottom: 28px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--layer-1); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  /* === Controls === */
+  .controls {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 36px;
+  }
+  .replay-btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 9px 22px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--ink-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.25s var(--ease-out-expo);
+    letter-spacing: 0.04em;
+  }
+  .replay-btn:hover {
+    border-color: var(--border-active);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+  }
+  .replay-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* === Stage === */
+  .stage {
+    width: 100%;
+    max-width: 1080px;
+  }
+
+  /* === Timeline track === */
+  .timeline-wrap {
+    position: relative;
+    padding: 12px 0 8px;
+    margin-bottom: 8px;
+  }
+  .timeline-track {
+    position: absolute;
+    top: 76px;
+    left: 4%;
+    right: 4%;
+    height: 2px;
+    background: var(--border-subtle);
+    border-radius: 1px;
+    z-index: 0;
+  }
+  .timeline-progress {
+    position: absolute;
+    top: 76px;
+    left: 4%;
+    height: 2px;
+    width: 0;
+    background: linear-gradient(to right,
+      var(--layer-1) 0%,
+      var(--layer-1) 40%,
+      var(--layer-2) 70%,
+      var(--layer-3) 100%);
+    border-radius: 1px;
+    z-index: 1;
+    transition: width 0.7s var(--ease-out-expo);
+    box-shadow: 0 0 10px rgba(86,182,194,0.25);
+  }
+
+  /* === Node row === */
+  .nodes {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    position: relative;
+    z-index: 2;
+  }
+  .node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    opacity: 0.32;
+    transition: opacity 0.5s var(--ease-out-expo);
+  }
+  .node.active { opacity: 1; }
+
+  /* Step number chip */
+  .node-step {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    transition: color 0.4s var(--ease-out-expo);
+  }
+  .node.active .node-step { color: var(--ink-secondary); }
+
+  /* Node dot (sits on the track) */
+  .node-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bg-surface);
+    border: 2px solid var(--border-active);
+    position: relative;
+    margin-bottom: 16px;
+    transition: all 0.5s var(--ease-out-expo);
+    z-index: 3;
+  }
+  .node.active .node-dot {
+    transform: scale(1.25);
+  }
+  .node.active[data-layer="L1"] .node-dot {
+    background: var(--layer-1);
+    border-color: var(--layer-1);
+    box-shadow: 0 0 16px var(--layer-1-glow);
+  }
+  .node.active[data-layer="L2"] .node-dot {
+    background: var(--layer-2);
+    border-color: var(--layer-2);
+    box-shadow: 0 0 16px var(--layer-2-glow);
+  }
+  .node.active[data-layer="L3"] .node-dot {
+    background: var(--layer-3);
+    border-color: var(--layer-3);
+    box-shadow: 0 0 16px var(--layer-3-glow);
+  }
+  .node.active[data-layer="NEUTRAL"] .node-dot {
+    background: var(--neutral);
+    border-color: var(--neutral);
+    box-shadow: 0 0 12px var(--neutral-glow);
+  }
+
+  /* Node card */
+  .node-card {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    padding: 12px 10px 11px;
+    width: 100%;
+    min-height: 132px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.5s var(--ease-out-expo),
+                box-shadow 0.5s var(--ease-out-expo),
+                transform 0.5s var(--ease-out-expo);
+  }
+  .node.active .node-card { transform: translateY(-2px); }
+  .node.active[data-layer="L1"] .node-card {
+    border-color: rgba(86,182,194,0.45);
+    box-shadow: 0 0 22px var(--layer-1-dim);
+  }
+  .node.active[data-layer="L2"] .node-card {
+    border-color: rgba(200,143,63,0.45);
+    box-shadow: 0 0 22px var(--layer-2-dim);
+  }
+  .node.active[data-layer="L3"] .node-card {
+    border-color: rgba(224,108,117,0.45);
+    box-shadow: 0 0 22px var(--layer-3-dim);
+  }
+  .node.active[data-layer="NEUTRAL"] .node-card {
+    border-color: var(--border-active);
+    box-shadow: 0 0 16px var(--neutral-dim);
+  }
+
+  /* Left color bar inside card */
+  .node-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--border-subtle);
+    transition: background 0.5s var(--ease-out-expo);
+  }
+  .node.active[data-layer="L1"] .node-card::before { background: var(--layer-1); }
+  .node.active[data-layer="L2"] .node-card::before { background: var(--layer-2); }
+  .node.active[data-layer="L3"] .node-card::before { background: var(--layer-3); }
+  .node.active[data-layer="NEUTRAL"] .node-card::before { background: var(--neutral); }
+
+  .node-title {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--ink-primary);
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+    min-height: 30px;
+  }
+  .node-desc {
+    font-size: 10.5px;
+    color: var(--ink-secondary);
+    line-height: 1.45;
+    flex: 1;
+  }
+
+  /* Layer + token meta footer */
+  .node-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 2px;
+  }
+  .node-layer-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    align-self: flex-start;
+    line-height: 1.4;
+  }
+  .node[data-layer="L1"] .node-layer-tag {
+    color: var(--layer-1);
+    background: var(--layer-1-dim);
+    border: 1px solid rgba(86,182,194,0.28);
+  }
+  .node[data-layer="L2"] .node-layer-tag {
+    color: var(--layer-2);
+    background: var(--layer-2-dim);
+    border: 1px solid rgba(200,143,63,0.28);
+  }
+  .node[data-layer="L3"] .node-layer-tag {
+    color: var(--layer-3);
+    background: var(--layer-3-dim);
+    border: 1px solid rgba(224,108,117,0.28);
+  }
+  .node[data-layer="NEUTRAL"] .node-layer-tag {
+    color: var(--ink-secondary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .node-cost {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+  }
+  .node[data-layer="L1"] .node-cost .val { color: var(--layer-1); }
+  .node[data-layer="L2"] .node-cost .val { color: var(--layer-2); }
+  .node[data-layer="L3"] .node-cost .val { color: var(--layer-3); }
+
+  /* L3 "not in context" pill */
+  .l3-bypass {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(224,108,117,0.10);
+    border: 1px solid rgba(224,108,117,0.32);
+    color: var(--layer-3);
+    align-self: flex-start;
+    line-height: 1.5;
+  }
+  .l3-bypass::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--layer-3);
+    box-shadow: 0 0 5px var(--layer-3-glow);
+  }
+
+  /* === Context Window panel === */
+  .ctx-panel {
+    margin-top: 44px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 22px 26px 20px;
+    position: relative;
+  }
+  .ctx-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ctx-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-primary);
+    letter-spacing: 0.02em;
+  }
+  .ctx-title .label {
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+  .ctx-total {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    letter-spacing: 0.02em;
+  }
+  .ctx-total .num { color: var(--ink-primary); }
+
+  /* Context bar (fills with L1 + L2 segments) */
+  .ctx-bar {
+    position: relative;
+    height: 30px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    display: flex;
+  }
+  .ctx-seg {
+    height: 100%;
+    width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--bg-deep);
+    font-weight: 500;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: width 0.7s var(--ease-out-expo);
+  }
+  .ctx-seg.l1 {
+    background: var(--layer-1);
+    box-shadow: inset 0 0 12px var(--layer-1-dim);
+  }
+  .ctx-seg.l2 {
+    background: var(--layer-2);
+    box-shadow: inset 0 0 12px var(--layer-2-dim);
+  }
+  .ctx-cap {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.06em;
+    pointer-events: none;
+  }
+
+  /* L3 bypass rail (outside context window) */
+  .ctx-bypass-row {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0.32;
+    transition: opacity 0.6s var(--ease-out-expo);
+  }
+  .ctx-bypass-row.shown { opacity: 1; }
+  .bypass-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .bypass-track {
+    flex: 1;
+    height: 14px;
+    background: var(--bg-elevated);
+    border: 1px dashed rgba(224,108,117,0.35);
+    border-radius: var(--radius-sm);
+    position: relative;
+    overflow: hidden;
+  }
+  .bypass-flow {
+    position: absolute;
+    top: 0; bottom: 0;
+    left: -30%;
+    width: 30%;
+    background: linear-gradient(90deg,
+      transparent,
+      var(--layer-3-dim),
+      var(--layer-3-glow),
+      var(--layer-3-dim),
+      transparent);
+    opacity: 0;
+    transition: opacity 0.5s var(--ease-out-expo);
+  }
+  .ctx-bypass-row.shown .bypass-flow {
+    opacity: 1;
+    animation: bypassFlow 2.2s var(--ease-in-out) infinite;
+  }
+  @keyframes bypassFlow {
+    0% { left: -30%; }
+    100% { left: 100%; }
+  }
+  .bypass-note {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--layer-3);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 40px;
+    max-width: 780px;
+    text-align: center;
+    padding: 20px 26px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--layer-1);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 13px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    color: var(--layer-1);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .insight p .hl-amber {
+    color: var(--layer-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .insight p .hl-coral {
+    color: var(--layer-3);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 26px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-dot.d1 { background: var(--layer-1); box-shadow: 0 0 6px var(--layer-1-dim); }
+  .legend-dot.d2 { background: var(--layer-2); box-shadow: 0 0 6px var(--layer-2-dim); }
+  .legend-dot.d3 { background: var(--layer-3); box-shadow: 0 0 6px var(--layer-3-dim); }
+
+  /* === Responsive === */
+  @media (max-width: 880px) {
+    .nodes {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .timeline-track, .timeline-progress { display: none; }
+    .node-dot { margin-bottom: 10px; }
+  }
+  @media (max-width: 520px) {
+    .nodes { grid-template-columns: repeat(2, 1fr); }
+    .node-card { min-height: auto; }
+    .node-title { min-height: auto; }
+    .ctx-panel { padding: 18px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Skills <span class="accent">加载流程</span> 时序</h1>
+  <p>用户一句话触发后，三层按需依次进入上下文窗口——L1 始终在，L2 触发时进，L3 永远不进。</p>
+</div>
+
+<div class="controls">
+  <button class="replay-btn" id="replay-btn" onclick="replay()">重新演示</button>
+</div>
+
+<div class="stage">
+
+  <!-- === Timeline === -->
+  <div class="timeline-wrap">
+    <div class="timeline-track"></div>
+    <div class="timeline-progress" id="timeline-progress"></div>
+
+    <div class="nodes" id="nodes">
+
+      <!-- Node 1: User request -->
+      <div class="node" data-layer="NEUTRAL" data-step="1">
+        <div class="node-step">01</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">用户请求</div>
+          <div class="node-desc">"审查这段代码的安全问题"</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">输入</span>
+            <span class="node-cost">触发点</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 2: Check metadata (L1 already in context) -->
+      <div class="node" data-layer="L1" data-step="2">
+        <div class="node-step">02</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">检查元数据</div>
+          <div class="node-desc">L1 启动时已就绪，Claude 扫描所有 skill 的 name + description</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">L1 · 已在上下文</span>
+            <span class="node-cost"><span class="val">~100</span> tok / skill</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 3: Match description -->
+      <div class="node" data-layer="L1" data-step="3">
+        <div class="node-step">03</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">匹配 description</div>
+          <div class="node-desc">把请求语义匹配到某个 skill（如 "审查安全" → security-review）</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">L1 · 已在上下文</span>
+            <span class="node-cost">无新增 token</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 4: Read SKILL.md (L2 enters context) -->
+      <div class="node" data-layer="L2" data-step="4">
+        <div class="node-step">04</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">读 SKILL.md</div>
+          <div class="node-desc">L2 指令正文加载进上下文，Claude 获得执行步骤</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">L2 · 进入上下文</span>
+            <span class="node-cost"><span class="val">≤5k</span> tok</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 5: Read resources on demand (L3, NOT in context) -->
+      <div class="node" data-layer="L3" data-step="5">
+        <div class="node-step">05</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">按需读资源</div>
+          <div class="node-desc">L3 脚本/模板通过 bash 执行，只取 stdout 结果</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">L3 · bash 执行</span>
+            <span class="l3-bypass">内容不进上下文</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Node 6: Execute → result -->
+      <div class="node" data-layer="NEUTRAL" data-step="6">
+        <div class="node-step">06</div>
+        <div class="node-dot"></div>
+        <div class="node-card">
+          <div class="node-title">执行 → 返回</div>
+          <div class="node-desc">基于 L2 指令 + L3 执行结果，产出审查报告</div>
+          <div class="node-meta">
+            <span class="node-layer-tag">输出</span>
+            <span class="node-cost">完成</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- === Context Window panel === -->
+  <div class="ctx-panel">
+    <div class="ctx-header">
+      <div class="ctx-title">
+        <span class="label">CONTEXT WINDOW</span>
+        上下文窗口
+      </div>
+      <div class="ctx-total">上下文内 token：<span class="num" id="ctx-total">0</span> / 200k</div>
+    </div>
+
+    <div class="ctx-bar">
+      <div class="ctx-seg l1" id="ctx-l1">L1 元数据</div>
+      <div class="ctx-seg l2" id="ctx-l2">L2 指令</div>
+      <div class="ctx-cap">200k ctx limit</div>
+    </div>
+
+    <div class="ctx-bypass-row" id="bypass-row">
+      <span class="bypass-label">L3 资源旁路</span>
+      <div class="bypass-track">
+        <div class="bypass-flow"></div>
+      </div>
+      <span class="bypass-note">通过 bash 执行，结果进上下文，源文件不进</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d1"></span> L1 元数据 · 始终在上下文</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> L2 指令 · 触发后进上下文</div>
+  <div class="legend-item"><span class="legend-dot d3"></span> L3 资源 · 不进上下文</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">时序的核心</div>
+  <p>
+    真正进上下文的只有 <span class="hl">L1 元数据</span>（启动时已在）和 <span class="hl-amber">L2 指令</span>（触发时加载）。
+    <span class="hl-coral">L3 资源</span>无论多大，都通过 bash 执行——只有 stdout 结果回到上下文，源文件永不占用窗口。
+  </p>
+</div>
+
+<script>
+(function() {
+  // === Step sequence config ===
+  // Each step: which node index to activate (0-based), and context-window / progress side-effects.
+  // L1 segment shown relative to 200k cap: ~100 tok → tiny; visually we use a min readable width.
+  // L2 segment: ≤5k tok → small but visible. L3 never enters.
+  const TOTAL_STEPS = 6;
+  const NODES = Array.from(document.querySelectorAll('.node'));
+  const progressEl = document.getElementById('timeline-progress');
+  const ctxL1 = document.getElementById('ctx-l1');
+  const ctxL2 = document.getElementById('ctx-l2');
+  const ctxTotal = document.getElementById('ctx-total');
+  const bypassRow = document.getElementById('bypass-row');
+  const replayBtn = document.getElementById('replay-btn');
+
+  let running = false;
+  let timers = [];
+
+  // Visual widths for the context bar (L1+L2 occupy a small fraction of 200k cap,
+  // but enlarged slightly so the labels are legible. L3 never appears here.)
+  const L1_WIDTH = 9;   // represents ~100 tok baseline (visually legible)
+  const L2_WIDTH = 16;  // represents ≤5k tok (mid band)
+
+  function clearTimers() {
+    timers.forEach(t => clearTimeout(t));
+    timers = [];
+  }
+
+  function reset() {
+    clearTimers();
+    NODES.forEach(n => n.classList.remove('active'));
+    progressEl.style.width = '0%';
+    ctxL1.style.width = '0%';
+    ctxL2.style.width = '0%';
+    ctxTotal.textContent = '0';
+    bypassRow.classList.remove('shown');
+  }
+
+  function activateNode(idx) {
+    NODES[idx].classList.add('active');
+  }
+
+  function setProgress(step) {
+    // step 1..6 → progress fills across the track
+    const pct = (step / TOTAL_STEPS) * 100;
+    progressEl.style.width = pct + '%';
+  }
+
+  function fillL1() {
+    ctxL1.style.width = L1_WIDTH + '%';
+    animateTotal(100);
+  }
+  function fillL2() {
+    ctxL2.style.width = L2_WIDTH + '%';
+    animateTotal(5000);
+  }
+  function showBypass() {
+    bypassRow.classList.add('shown');
+  }
+
+  // Animate the token counter to a target (only L1+L2 contribute; L3 bypassed)
+  function animateTotal(target) {
+    const start = parseInt(ctxTotal.textContent.replace(/,/g, '')) || 0;
+    const duration = 600;
+    const t0 = performance.now();
+    function tick(now) {
+      const p = Math.min(1, (now - t0) / duration);
+      const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+      const val = Math.round(start + (target - start) * eased);
+      ctxTotal.textContent = val.toLocaleString();
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function run() {
+    if (running) return;
+    running = true;
+    replayBtn.disabled = true;
+    reset();
+
+    const STEP_DELAY = 950; // ms between node activations
+
+    // Step 1: User request (neutral)
+    timers.push(setTimeout(() => {
+      activateNode(0);
+      setProgress(1);
+    }, 150));
+
+    // Step 2: Check metadata (L1 — already in context, so fill L1 segment)
+    timers.push(setTimeout(() => {
+      activateNode(1);
+      setProgress(2);
+      fillL1();
+    }, 150 + STEP_DELAY));
+
+    // Step 3: Match description (still L1, no new token)
+    timers.push(setTimeout(() => {
+      activateNode(2);
+      setProgress(3);
+    }, 150 + STEP_DELAY * 2));
+
+    // Step 4: Read SKILL.md (L2 enters context)
+    timers.push(setTimeout(() => {
+      activateNode(3);
+      setProgress(4);
+      fillL2();
+    }, 150 + STEP_DELAY * 3));
+
+    // Step 5: Read resources on demand (L3, bypasses context)
+    timers.push(setTimeout(() => {
+      activateNode(4);
+      setProgress(5);
+      showBypass();
+    }, 150 + STEP_DELAY * 4));
+
+    // Step 6: Execute → result (neutral output)
+    timers.push(setTimeout(() => {
+      activateNode(5);
+      setProgress(6);
+      running = false;
+      replayBtn.disabled = false;
+    }, 150 + STEP_DELAY * 5));
+  }
+
+  window.replay = function() {
+    if (running) return;
+    run();
+  };
+
+  // === Auto-play on load ===
+  timers.push(setTimeout(run, 400));
+})();
+</script>
+
+</body>
+</html>

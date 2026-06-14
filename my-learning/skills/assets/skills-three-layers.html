@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skills 三层架构 — Claude Code Skills</title>
+<style>
+  /* === Design System (aligned with checkpoints/restore-vs-summarize.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Layer accents: cost gradient — teal (cheap/always) → amber (mid) → coral (unbounded) */
+    /* Reuses checkpoints palette (teal=#56b6c2, coral=#e06c75) + amber as the mid step */
+    --layer-1: #56b6c2;            /* metadata: teal — always present, lowest cost */
+    --layer-1-dim: rgba(86,182,194,0.16);
+    --layer-1-glow: rgba(86,182,194,0.32);
+    --layer-2: #c88f3f;            /* instructions: amber — mid cost */
+    --layer-2-dim: rgba(200,143,63,0.16);
+    --layer-2-glow: rgba(200,143,63,0.30);
+    --layer-3: #e06c75;            /* resources: coral — unbounded cost, but NOT in context */
+    --layer-3-dim: rgba(224,108,117,0.16);
+    --layer-3-glow: rgba(224,108,117,0.32);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to checkpoints asset */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 760px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--layer-1); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* === Main: pyramid + cost rail === */
+  .main {
+    width: 100%;
+    max-width: 980px;
+    display: grid;
+    grid-template-columns: 1fr 132px;
+    gap: 32px;
+    align-items: center;
+  }
+
+  /* === Pyramid column === */
+  .pyramid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* === Layer card === */
+  .layer {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 20px 26px;
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 20px;
+    align-items: center;
+    transition: border-color 0.35s var(--ease-out-expo),
+                box-shadow 0.35s var(--ease-out-expo),
+                transform 0.35s var(--ease-out-expo);
+    opacity: 0;
+    transform: translateY(16px);
+    animation: layerEnter 0.6s var(--ease-out-expo) forwards;
+  }
+  .layer.l1 {
+    width: 62%;
+    border-color: rgba(86,182,194,0.28);
+    box-shadow: 0 0 24px var(--layer-1-dim);
+    animation-delay: 0.15s;
+  }
+  .layer.l2 {
+    width: 82%;
+    border-color: rgba(200,143,63,0.26);
+    box-shadow: 0 0 24px var(--layer-2-dim);
+    animation-delay: 0.55s;
+  }
+  .layer.l3 {
+    width: 100%;
+    border-color: rgba(224,108,117,0.26);
+    box-shadow: 0 0 24px var(--layer-3-dim);
+    animation-delay: 0.95s;
+  }
+  @keyframes layerEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Layer index badge */
+  .layer-index {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1;
+    border-radius: var(--radius-md);
+    padding: 10px 0;
+    border: 1px solid currentColor;
+  }
+  .layer-index .sub {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+    opacity: 0.7;
+  }
+  .l1 .layer-index { color: var(--layer-1); background: var(--layer-1-dim); }
+  .l2 .layer-index { color: var(--layer-2); background: var(--layer-2-dim); }
+  .l3 .layer-index { color: var(--layer-3); background: var(--layer-3-dim); }
+
+  /* Layer body */
+  .layer-body { min-width: 0; }
+  .layer-name {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-bottom: 4px;
+  }
+  .l1 .layer-name { color: var(--layer-1); }
+  .l2 .layer-name { color: var(--layer-2); }
+  .l3 .layer-name { color: var(--layer-3); }
+  .layer-when {
+    font-size: 11px;
+    color: var(--ink-secondary);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .layer-when .trigger {
+    font-family: var(--font-mono);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+    padding: 1px 7px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    font-size: 10px;
+  }
+  .layer-content {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+  }
+  .layer-content code {
+    color: var(--ink-secondary);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+  }
+
+  /* Right-side token cost cell */
+  .layer-cost {
+    text-align: right;
+    font-family: var(--font-mono);
+    line-height: 1.2;
+  }
+  .layer-cost .value {
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .layer-cost .unit {
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
+    margin-top: 3px;
+    text-transform: uppercase;
+  }
+  .l1 .layer-cost .value { color: var(--layer-1); }
+  .l2 .layer-cost .value { color: var(--layer-2); }
+  .l3 .layer-cost .value { color: var(--layer-3); }
+
+  /* === "On-demand" connector between layers === */
+  .connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 0;
+    opacity: 0;
+    animation: connEnter 0.5s var(--ease-out-expo) forwards;
+  }
+  .connector.c1 { animation-delay: 0.45s; }
+  .connector.c2 { animation-delay: 0.85s; }
+  @keyframes connEnter { to { opacity: 1; } }
+  .connector-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .connector-arrow {
+    color: var(--ink-muted);
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  /* === Token cost rail (right) === */
+  .cost-rail {
+    position: relative;
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+  }
+  .cost-rail::before {
+    /* vertical guide line */
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    background: linear-gradient(
+      to bottom,
+      var(--layer-1) 0%,
+      var(--layer-1) 20%,
+      var(--layer-2) 45%,
+      var(--layer-3) 80%,
+      var(--layer-3) 100%
+    );
+    border-radius: 1px;
+    opacity: 0.55;
+  }
+  .rail-title {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    padding-left: 18px;
+  }
+  .rail-mark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    margin-bottom: 0;
+    flex: 1;
+  }
+  .rail-mark:last-child { flex: 2.2; }
+  .rail-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-left: 3px;
+    border: 2px solid var(--bg-deep);
+  }
+  .rail-mark.m1 .rail-dot { background: var(--layer-1); box-shadow: 0 0 8px var(--layer-1-glow); }
+  .rail-mark.m2 .rail-dot { background: var(--layer-2); box-shadow: 0 0 8px var(--layer-2-glow); }
+  .rail-mark.m3 .rail-dot { background: var(--layer-3); box-shadow: 0 0 8px var(--layer-3-glow); }
+  .rail-text {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.35;
+  }
+  .rail-text .big {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .rail-mark.m1 .rail-text .big { color: var(--layer-1); }
+  .rail-mark.m2 .rail-text .big { color: var(--layer-2); }
+  .rail-mark.m3 .rail-text .big { color: var(--layer-3); }
+  .rail-text .small { color: var(--ink-muted); letter-spacing: 0.04em; }
+
+  /* === L3 "not in context" callout === */
+  .not-in-ctx {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: var(--radius-sm);
+    background: rgba(224,108,117,0.10);
+    border: 1px solid rgba(224,108,117,0.30);
+    color: var(--layer-3);
+    margin-top: 8px;
+  }
+  .not-in-ctx::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--layer-3);
+    box-shadow: 0 0 6px var(--layer-3-glow);
+  }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 44px;
+    max-width: 760px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--layer-1);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    animation: insightEnter 0.7s var(--ease-out-expo) 1.3s forwards;
+  }
+  @keyframes insightEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    color: var(--layer-1);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 28px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.d1 { background: var(--layer-1); box-shadow: 0 0 6px var(--layer-1-dim); }
+  .legend-dot.d2 { background: var(--layer-2); box-shadow: 0 0 6px var(--layer-2-dim); }
+  .legend-dot.d3 { background: var(--layer-3); box-shadow: 0 0 6px var(--layer-3-dim); }
+
+  /* === Responsive === */
+  @media (max-width: 720px) {
+    .main {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    .cost-rail {
+      flex-direction: row;
+      min-height: auto;
+      padding-left: 0;
+      padding-top: 0;
+      align-items: stretch;
+    }
+    .cost-rail::before {
+      left: 12px; right: 12px;
+      top: 8px; bottom: auto;
+      width: auto; height: 2px;
+      background: linear-gradient(
+        to right,
+        var(--layer-1) 0%, var(--layer-1) 20%,
+        var(--layer-2) 45%, var(--layer-3) 80%, var(--layer-3) 100%
+      );
+    }
+    .rail-title { display: none; }
+    .rail-mark { flex-direction: column; align-items: center; text-align: center; gap: 6px; padding-top: 18px; }
+    .rail-dot { margin-left: 0; }
+    .layer {
+      width: 100% !important;
+      grid-template-columns: 44px 1fr;
+    }
+    .layer-cost {
+      grid-column: 1 / -1;
+      text-align: left;
+      padding-left: 64px;
+      border-top: 1px solid var(--border-subtle);
+      margin-top: 8px;
+      padding-top: 10px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Skills <span class="accent">三层架构</span></h1>
+  <p>Claude 不一开始塞满上下文，而是按需逐层加载——越往下 token 成本越高，但只在需要时才付。</p>
+</div>
+
+<div class="main">
+
+  <!-- === Pyramid (left) === -->
+  <div class="pyramid">
+
+    <!-- Layer 1: Metadata -->
+    <div class="layer l1">
+      <div class="layer-index">
+        L1<span class="sub">META</span>
+      </div>
+      <div class="layer-body">
+        <div class="layer-name">元数据 / Metadata</div>
+        <div class="layer-when">始终加载 <span class="trigger">启动时</span></div>
+        <div class="layer-content">
+          YAML frontmatter 中的 <code>name</code> + <code>description</code>
+        </div>
+      </div>
+      <div class="layer-cost">
+        <div class="value">~100</div>
+        <div class="unit">tokens</div>
+      </div>
+    </div>
+
+    <!-- Connector 1 -->
+    <div class="connector c1">
+      <span class="connector-label">按需</span>
+      <span class="connector-arrow">▼</span>
+    </div>
+
+    <!-- Layer 2: Instructions -->
+    <div class="layer l2">
+      <div class="layer-index">
+        L2<span class="sub">INSTR</span>
+      </div>
+      <div class="layer-body">
+        <div class="layer-name">指令 / Instructions</div>
+        <div class="layer-when">触发时加载 <span class="trigger">skill 被调用</span></div>
+        <div class="layer-content">
+          SKILL.md 正文（指令与指导）
+        </div>
+      </div>
+      <div class="layer-cost">
+        <div class="value">≤5k</div>
+        <div class="unit">tokens</div>
+      </div>
+    </div>
+
+    <!-- Connector 2 -->
+    <div class="connector c2">
+      <span class="connector-label">按需</span>
+      <span class="connector-arrow">▼</span>
+    </div>
+
+    <!-- Layer 3: Resources -->
+    <div class="layer l3">
+      <div class="layer-index">
+        L3<span class="sub">RES</span>
+      </div>
+      <div class="layer-body">
+        <div class="layer-name">资源 / Resources</div>
+        <div class="layer-when">按需加载 <span class="trigger">执行时通过 bash</span></div>
+        <div class="layer-content">
+          脚本 / 模板 / 文档
+        </div>
+        <div class="not-in-ctx">内容不进上下文</div>
+      </div>
+      <div class="layer-cost">
+        <div class="value">∞</div>
+        <div class="unit">无上限</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- === Token cost rail (right) === -->
+  <div class="cost-rail">
+    <div class="rail-title">token 成本递增</div>
+    <div class="rail-mark m1">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">~100</span><span class="small">始终</span></span>
+    </div>
+    <div class="rail-mark m2">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">≤5k</span><span class="small">触发</span></span>
+    </div>
+    <div class="rail-mark m3">
+      <span class="rail-dot"></span>
+      <span class="rail-text"><span class="big">∞ 无上限</span><span class="small">按需</span></span>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d1"></span> L1 元数据 · 始终在上下文</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> L2 指令 · 触发后进上下文</div>
+  <div class="legend-item"><span class="legend-dot d3"></span> L3 资源 · 执行结果不进上下文</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">为什么这是关键设计</div>
+  <p>安装大量 skill 也不损耗上下文——触发前 Claude 对每个 skill 只知道 <span class="hl">「它存在」</span> 和 <span class="hl">「何时用」</span>。成本只在真正需要的那一刻才支付。</p>
+</div>
+
+</body>
+</html>

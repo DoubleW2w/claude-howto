@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hooks JSON 数据流 — Claude Code Hooks</title>
+<style>
+  /* === Design System (verbatim reuse from hooks-config-structure.html / skills-three-layers.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Accents: teal (input) / amber (processing) / coral (output) — reuse series palette */
+    --layer-1: #56b6c2;            /* stdin / Claude-side: teal — inbound data */
+    --layer-1-dim: rgba(86,182,194,0.16);
+    --layer-1-glow: rgba(86,182,194,0.32);
+    --layer-2: #c88f3f;            /* Hook script: amber — processing */
+    --layer-2-dim: rgba(200,143,63,0.16);
+    --layer-2-glow: rgba(200,143,63,0.30);
+    --layer-3: #e06c75;            /* stdout / decision: coral — outbound */
+    --layer-3-dim: rgba(224,108,117,0.16);
+    --layer-3-glow: rgba(224,108,117,0.32);
+    --layer-4: #8895ab;            /* neutral: ink-secondary */
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to series assets */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 780px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--layer-1); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  /* === Main: horizontal flow (Claude → Hook → Claude) === */
+  .flow {
+    width: 100%;
+    max-width: 1040px;
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    gap: 0;
+    align-items: stretch;
+    position: relative;
+  }
+
+  /* === Actor card (Claude / Hook) === */
+  .actor {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 22px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(14px);
+    animation: actorEnter 0.55s var(--ease-out-expo) forwards;
+  }
+  .actor.claude-left {
+    border-color: rgba(86,182,194,0.30);
+    box-shadow: 0 0 26px var(--layer-1-dim);
+    animation-delay: 0.10s;
+  }
+  .actor.hook {
+    border-color: rgba(200,143,63,0.30);
+    box-shadow: 0 0 28px var(--layer-2-dim);
+    animation-delay: 0.30s;
+  }
+  .actor.claude-right {
+    border-color: rgba(224,108,117,0.30);
+    box-shadow: 0 0 26px var(--layer-3-dim);
+    animation-delay: 0.50s;
+  }
+  @keyframes actorEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Left color stripe (series signature) */
+  .actor::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 16px; bottom: 16px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .actor.claude-left::before { background: var(--layer-1); box-shadow: 0 0 8px var(--layer-1-glow); }
+  .actor.hook::before { background: var(--layer-2); box-shadow: 0 0 8px var(--layer-2-glow); }
+  .actor.claude-right::before { background: var(--layer-3); box-shadow: 0 0 8px var(--layer-3-glow); }
+
+  /* Actor icon block */
+  .actor-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-md);
+    border: 1px solid currentColor;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+  .actor.claude-left .actor-icon { color: var(--layer-1); background: var(--layer-1-dim); }
+  .actor.hook .actor-icon { color: var(--layer-2); background: var(--layer-2-dim); }
+  .actor.claude-right .actor-icon { color: var(--layer-3); background: var(--layer-3-dim); }
+
+  .actor-name {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    margin-bottom: 4px;
+  }
+  .actor.claude-left .actor-name { color: var(--layer-1); }
+  .actor.hook .actor-name { color: var(--layer-2); }
+  .actor.claude-right .actor-name { color: var(--layer-3); }
+
+  .actor-sub {
+    font-size: 11px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+    margin-bottom: 14px;
+    min-height: 32px;
+  }
+
+  /* Actor "ports" — what it reads / writes */
+  .actor-port {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    padding: 5px 11px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .actor-port .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .actor.claude-left .actor-port .dot { background: var(--layer-1); box-shadow: 0 0 5px var(--layer-1-glow); }
+  .actor.hook .actor-port .dot { background: var(--layer-2); box-shadow: 0 0 5px var(--layer-2-glow); }
+  .actor.claude-right .actor-port .dot { background: var(--layer-3); box-shadow: 0 0 5px var(--layer-3-glow); }
+
+  /* === Channel overlay (the stdin/stdout arrows) === */
+  /* Positioned absolutely over the gaps between actor cards */
+  .channel {
+    position: absolute;
+    top: 30px;
+    height: 78px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    opacity: 0;
+    animation: channelEnter 0.5s var(--ease-out-expo) 0.70s forwards;
+  }
+  @keyframes channelEnter { to { opacity: 1; } }
+
+  /* stdin channel: left card → middle card */
+  .channel.stdin {
+    left: calc(33.333% - 11px);
+    width: calc(11.111% + 22px - 12px); /* spans the gap region */
+    transform: translateX(0);
+  }
+  /* stdout channel: middle card → right card */
+  .channel.stdout {
+    left: calc(66.666% - 12px);
+    width: calc(11.111% + 24px - 12px);
+  }
+
+  /* Recompute: channels sit across the gap between cards (gap = 0 in grid, so use card-edge math).
+     Simplify: cards are equal thirds, no gap. Channel spans ~12% centered on each seam. */
+  .channel.stdin  { left: 27.5%; width: 12%; }
+  .channel.stdout { left: 60.5%; width: 12%; }
+
+  .channel-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    background: var(--bg-deep);
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 2;
+  }
+  .channel.stdin .channel-label { color: var(--layer-1); }
+  .channel.stdout .channel-label { color: var(--layer-3); }
+
+  /* The arrow track (line + arrowhead) */
+  .channel-track {
+    position: relative;
+    width: 100%;
+    height: 22px;
+    display: flex;
+    align-items: center;
+  }
+  .channel-line {
+    flex: 1;
+    height: 2px;
+    border-radius: 1px;
+    position: relative;
+  }
+  .channel.stdin .channel-line {
+    background: linear-gradient(to right, var(--layer-1), rgba(86,182,194,0.25));
+  }
+  .channel.stdout .channel-line {
+    background: linear-gradient(to right, var(--layer-3), rgba(224,108,117,0.25));
+  }
+  .channel-arrow {
+    width: 0; height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    flex-shrink: 0;
+  }
+  .channel.stdin .channel-arrow {
+    border-left: 8px solid var(--layer-1);
+    filter: drop-shadow(0 0 4px var(--layer-1-glow));
+  }
+  .channel.stdout .channel-arrow {
+    border-left: 8px solid var(--layer-3);
+    filter: drop-shadow(0 0 4px var(--layer-3-glow));
+  }
+
+  /* Animated data packet traveling along the channel */
+  .packet {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    z-index: 1;
+  }
+  .channel.stdin .packet {
+    background: var(--layer-1);
+    box-shadow: 0 0 10px var(--layer-1-glow);
+    left: 0;
+    animation: packetRight 2.6s var(--ease-in-out) 0.95s infinite;
+  }
+  .channel.stdout .packet {
+    background: var(--layer-3);
+    box-shadow: 0 0 10px var(--layer-3-glow);
+    right: 8px;
+    animation: packetLeft 2.6s var(--ease-in-out) 2.25s infinite;
+  }
+  @keyframes packetRight {
+    0%   { left: 0;    opacity: 0; }
+    10%  { opacity: 1; }
+    55%  { left: calc(100% - 18px); opacity: 1; }
+    62%  { left: calc(100% - 18px); opacity: 0; }
+    100% { left: calc(100% - 18px); opacity: 0; }
+  }
+  @keyframes packetLeft {
+    0%   { left: calc(100% - 18px); opacity: 0; }
+    10%  { opacity: 1; }
+    55%  { left: 0; opacity: 1; }
+    62%  { left: 0; opacity: 0; }
+    100% { left: 0; opacity: 0; }
+  }
+
+  /* Channel sub-caption (the medium) */
+  .channel-sub {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    margin-top: 7px;
+  }
+
+  /* === Key rule banner (exit code 0 rule) === */
+  .rule-banner {
+    width: 100%;
+    max-width: 1040px;
+    margin-top: 30px;
+    border: 1px solid rgba(224,108,117,0.30);
+    border-left: 3px solid var(--layer-3);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    padding: 16px 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: ruleEnter 0.6s var(--ease-out-expo) 0.85s forwards;
+  }
+  @keyframes ruleEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .rule-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--layer-3);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 4px 9px;
+    border: 1px solid rgba(224,108,117,0.35);
+    border-radius: var(--radius-sm);
+    background: var(--layer-3-dim);
+    flex-shrink: 0;
+  }
+  .rule-text {
+    font-size: 13px;
+    color: var(--ink-primary);
+    line-height: 1.55;
+  }
+  .rule-text .hl {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .rule-text .hl-code { color: var(--layer-1); }
+  .rule-text .hl-parse { color: var(--layer-3); }
+
+  /* === Field reference section: stdin + stdout side by side === */
+  .field-grid {
+    width: 100%;
+    max-width: 1040px;
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+
+  .field-card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px 18px;
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  .field-card.stdin {
+    border-color: rgba(86,182,194,0.26);
+    box-shadow: 0 0 22px var(--layer-1-dim);
+    animation: cardEnter 0.6s var(--ease-out-expo) 1.00s forwards;
+  }
+  .field-card.stdout {
+    border-color: rgba(224,108,117,0.26);
+    box-shadow: 0 0 22px var(--layer-3-dim);
+    animation: cardEnter 0.6s var(--ease-out-expo) 1.15s forwards;
+  }
+  @keyframes cardEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .field-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 16px; bottom: 16px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .field-card.stdin::before { background: var(--layer-1); box-shadow: 0 0 8px var(--layer-1-glow); }
+  .field-card.stdout::before { background: var(--layer-3); box-shadow: 0 0 8px var(--layer-3-glow); }
+
+  .field-card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+    padding-left: 6px;
+  }
+  .field-card-title {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .field-card.stdin .field-card-title { color: var(--layer-1); }
+  .field-card.stdout .field-card-title { color: var(--layer-3); }
+  .field-card-meta {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--ink-muted);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+  .field-card-desc {
+    font-size: 11.5px;
+    color: var(--ink-secondary);
+    line-height: 1.55;
+    margin-bottom: 14px;
+    padding-left: 6px;
+  }
+
+  /* Field row list */
+  .field-list {
+    display: flex;
+    flex-direction: column;
+    padding-left: 6px;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    align-items: baseline;
+  }
+  .field-row:last-child { border-bottom: none; }
+  .frow-key {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .field-card.stdin .frow-key { color: var(--layer-1); }
+  .field-card.stdout .frow-key { color: var(--layer-3); }
+  .frow-desc {
+    font-size: 11px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+  }
+  .frow-desc .mono {
+    font-family: var(--font-mono);
+    color: var(--ink-primary);
+    font-size: 10px;
+    background: var(--bg-elevated);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* nested hookSpecificOutput block */
+  .hso-block {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+    padding: 10px 12px;
+    border: 1px dashed var(--border-active);
+    border-radius: var(--radius-sm);
+    background: var(--bg-deep);
+  }
+  .hso-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .hso-title .parent {
+    color: var(--layer-3);
+    font-weight: 500;
+  }
+
+  /* === Exit code ladder === */
+  .exit-ladder {
+    width: 100%;
+    max-width: 1040px;
+    margin-top: 32px;
+    opacity: 0;
+    transform: translateY(12px);
+    animation: cardEnter 0.6s var(--ease-out-expo) 1.30s forwards;
+  }
+  .exit-ladder-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-left: 4px;
+  }
+  .exit-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .exit-cell {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .exit-cell::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 14px; bottom: 14px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .exit-cell.e0::before { background: var(--layer-1); box-shadow: 0 0 8px var(--layer-1-glow); }
+  .exit-cell.e2::before { background: var(--layer-3); box-shadow: 0 0 8px var(--layer-3-glow); }
+  .exit-cell.e-other::before { background: var(--layer-4); }
+
+  .exit-code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .exit-cell.e0 .exit-code { color: var(--layer-1); }
+  .exit-cell.e2 .exit-code { color: var(--layer-3); }
+  .exit-cell.e-other .exit-code { color: var(--layer-4); }
+
+  .exit-action {
+    font-size: 12px;
+    color: var(--ink-primary);
+    line-height: 1.5;
+  }
+  .exit-action .mono {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    background: var(--bg-elevated);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    color: var(--ink-secondary);
+  }
+  .exit-note {
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    line-height: 1.45;
+    margin-top: 2px;
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 36px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+    opacity: 0;
+    animation: legendEnter 0.5s var(--ease-out-expo) 1.45s forwards;
+  }
+  @keyframes legendEnter { to { opacity: 1; } }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.d1 { background: var(--layer-1); box-shadow: 0 0 6px var(--layer-1-dim); }
+  .legend-dot.d2 { background: var(--layer-2); box-shadow: 0 0 6px var(--layer-2-dim); }
+  .legend-dot.d3 { background: var(--layer-3); box-shadow: 0 0 6px var(--layer-3-dim); }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 28px;
+    max-width: 780px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--layer-2);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    transform: translateY(12px);
+    animation: cardEnter 0.7s var(--ease-out-expo) 1.55s forwards;
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    color: var(--layer-2);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl-teal {
+    color: var(--layer-1);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl-coral {
+    color: var(--layer-3);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  /* === Responsive: stack to vertical flow on narrow screens === */
+  @media (max-width: 860px) {
+    .field-grid { grid-template-columns: 1fr; }
+    .exit-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .flow {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .actor { margin-bottom: 70px; }
+    .actor:last-child { margin-bottom: 0; }
+
+    /* rotate channels to vertical (top→down / down→top) */
+    .channel {
+      position: absolute;
+      width: 78px;
+      height: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      top: auto;
+    }
+    .channel.stdin {
+      /* sits below the first (left) card */
+      bottom: -70px;
+    }
+    .channel.stdout {
+      /* sits below the middle (hook) card — need different anchor.
+         Instead, place both channels via relative positioning fallback. */
+      display: none;
+    }
+    /* On narrow screens, render channels as simple inline labels under each card */
+    .channel { display: none; }
+    .actor::after {
+      content: attr(data-channel);
+      display: block;
+      margin-top: 12px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-elevated);
+      color: var(--ink-secondary);
+    }
+    .actor.claude-right::after { display: none; }
+
+    .rule-banner {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .rule-text { font-size: 12px; }
+    .field-row { grid-template-columns: 110px 1fr; gap: 10px; }
+  }
+  @media (max-width: 520px) {
+    body { padding: 28px 14px 48px; }
+    .header h1 { font-size: 19px; }
+    .actor { padding: 18px 14px 16px; }
+    .field-card { padding: 16px 16px 14px; }
+    .field-row { grid-template-columns: 1fr; gap: 4px; }
+    .frow-key { font-size: 10.5px; }
+  }
+
+  /* === Reduced motion === */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .packet { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Hooks <span class="accent">JSON 数据流</span></h1>
+  <p>Hook 不读命令行参数——它靠 stdin 收 JSON，靠 stdout + 退出码回决策。一条契约，来回两个方向。</p>
+</div>
+
+<!-- === Horizontal flow: Claude → Hook → Claude === -->
+<div class="flow">
+
+  <!-- Left actor: Claude (writes stdin) -->
+  <div class="actor claude-left" data-channel="▼ 通过 stdin 喂 JSON">
+    <div class="actor-icon">{ }</div>
+    <div class="actor-name">Claude</div>
+    <div class="actor-sub">触发事件时，把上下文序列化为 JSON</div>
+    <div class="actor-port"><span class="dot"></span>写入 stdin</div>
+  </div>
+
+  <!-- stdin channel (left → middle) -->
+  <div class="channel stdin">
+    <div class="channel-label">stdin · JSON 输入</div>
+    <div class="channel-track">
+      <div class="channel-line"></div>
+      <div class="channel-arrow"></div>
+      <div class="packet"></div>
+    </div>
+    <div class="channel-sub">字段速查 ↓</div>
+  </div>
+
+  <!-- Middle actor: Hook script (reads stdin, writes stdout + exit code) -->
+  <div class="actor hook" data-channel="▼ 处理后写 stdout + 退出码">
+    <div class="actor-icon">$</div>
+    <div class="actor-name">Hook 脚本</div>
+    <div class="actor-sub">解析 stdin，做决策，输出 JSON 到 stdout</div>
+    <div class="actor-port"><span class="dot"></span>read stdin / write stdout + exit</div>
+  </div>
+
+  <!-- stdout channel (middle → right) -->
+  <div class="channel stdout">
+    <div class="channel-label">stdout · JSON 输出 + 退出码</div>
+    <div class="channel-track">
+      <div class="channel-line"></div>
+      <div class="channel-arrow"></div>
+      <div class="packet"></div>
+    </div>
+    <div class="channel-sub">结构字段 ↓</div>
+  </div>
+
+  <!-- Right actor: Claude (reads stdout + exit code) -->
+  <div class="actor claude-right">
+    <div class="actor-icon">{ }</div>
+    <div class="actor-name">Claude</div>
+    <div class="actor-sub">按退出码决定放行/阻断，按 stdout 改写行为</div>
+    <div class="actor-port"><span class="dot"></span>读取 stdout + 退出码</div>
+  </div>
+
+</div>
+
+<!-- === Key rule banner === -->
+<div class="rule-banner">
+  <span class="rule-tag">关键规则</span>
+  <div class="rule-text">
+    只有退出码为 <span class="hl hl-code">0</span> 时，Claude 才<span class="hl hl-parse">解析 stdout 的 JSON</span>；其他退出码下 stdout 被忽略。退出码是「要不要听」的开关，stdout 是「听什么」的内容。
+  </div>
+</div>
+
+<!-- === Field reference: stdin + stdout === -->
+<div class="field-grid">
+
+  <!-- stdin fields -->
+  <div class="field-card stdin">
+    <div class="field-card-head">
+      <span class="field-card-title">stdin · JSON 输入</span>
+      <span class="field-card-meta">Claude → Hook</span>
+    </div>
+    <div class="field-card-desc">Claude 通过 stdin 推入的一段 JSON。Hook 从这里读取全部上下文——没有命令行参数。</div>
+    <div class="field-list">
+      <div class="field-row">
+        <span class="frow-key">session_id</span>
+        <span class="frow-desc">当前会话的唯一标识。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">transcript_path</span>
+        <span class="frow-desc">对话记录文件路径，可回溯历史。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">cwd</span>
+        <span class="frow-desc">Claude 当前工作目录。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">hook_event_name</span>
+        <span class="frow-desc">触发的事件名，如 <span class="mono">PreToolUse</span>。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">tool_name</span>
+        <span class="frow-desc">即将调用的工具，如 <span class="mono">Edit</span>。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">tool_input</span>
+        <span class="frow-desc">工具入参对象——可被 hook 改写后回传。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">agent_id</span>
+        <span class="frow-desc">触发的 agent 标识（子 agent 场景）。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">agent_type</span>
+        <span class="frow-desc">agent 类型，区分主/子 agent。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">worktree</span>
+        <span class="frow-desc">worktree 隔离信息（启用 worktree 时）。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">effort.level</span>
+        <span class="frow-desc">当前推理强度档位。</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- stdout structure -->
+  <div class="field-card stdout">
+    <div class="field-card-head">
+      <span class="field-card-title">stdout · JSON 输出</span>
+      <span class="field-card-meta">Hook → Claude · 仅退出码 0 时解析</span>
+    </div>
+    <div class="field-card-desc">Hook 输出到 stdout 的 JSON。结构字段决定 Claude 后续如何行动。</div>
+    <div class="field-list">
+      <div class="field-row">
+        <span class="frow-key">continue</span>
+        <span class="frow-desc">布尔。是否让 Claude 继续。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">stopReason</span>
+        <span class="frow-desc">停止时的理由文本。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">suppressOutput</span>
+        <span class="frow-desc">布尔。是否抑制 hook 输出的回显。</span>
+      </div>
+      <div class="field-row">
+        <span class="frow-key">systemMessage</span>
+        <span class="frow-desc">要插入给 Claude 的系统消息字符串。</span>
+      </div>
+
+      <!-- hookSpecificOutput nested block -->
+      <div class="hso-block">
+        <div class="hso-title"><span class="parent">hookSpecificOutput</span> · 按事件类型而变</div>
+        <div class="field-row">
+          <span class="frow-key">permissionDecision</span>
+          <span class="frow-desc">PreToolUse 专用：<span class="mono">allow</span> / <span class="mono">deny</span> / <span class="mono">ask</span>。</span>
+        </div>
+        <div class="field-row">
+          <span class="frow-key">updatedInput</span>
+          <span class="frow-desc">改写后的 tool_input——覆盖原入参。</span>
+        </div>
+        <div class="field-row">
+          <span class="frow-key">additionalContext</span>
+          <span class="frow-desc">追加注入的上下文字符串。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- === Exit code ladder === -->
+<div class="exit-ladder">
+  <div class="exit-ladder-title">退出码 · 决定 Claude 如何对待这次 hook</div>
+  <div class="exit-grid">
+    <div class="exit-cell e0">
+      <div class="exit-code">exit 0</div>
+      <div class="exit-action">成功 · <span class="mono">解析 stdout JSON</span></div>
+      <div class="exit-note">Claude 按返回的字段调整行为（放行 / 改写 / 注入上下文）。</div>
+    </div>
+    <div class="exit-cell e2">
+      <div class="exit-code">exit 2</div>
+      <div class="exit-action">阻断 · stderr 当错误反馈给 Claude</div>
+      <div class="exit-note">阻止当前动作，把 stderr 内容作为 blocking reason。</div>
+    </div>
+    <div class="exit-cell e-other">
+      <div class="exit-code">exit 其他</div>
+      <div class="exit-action">非阻断 · stderr 当警告</div>
+      <div class="exit-note">不阻止动作，stdout 不解析，stderr 显示为非致命警告。</div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d1"></span> stdin · 输入 JSON</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> Hook 脚本 · 处理</div>
+  <div class="legend-item"><span class="legend-dot d3"></span> stdout · 输出 JSON + 退出码</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">为什么这是关键设计</div>
+  <p>Hook 是一个<span class="hl">黑盒契约</span>：不读命令行参数，全靠 <span class="hl-teal">stdin</span> 进、<span class="hl-coral">stdout + 退出码</span> 出。任何语言写的脚本，只要遵守这套 JSON 契约，就能介入 Claude 的每一次决策。</p>
+</div>
+
+</body>
+</html>

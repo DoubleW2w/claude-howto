@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hooks 五类型对比 — Claude Code Hooks</title>
+<style>
+  /* === Design System (verbatim reuse from skills-three-layers / hooks-config-structure) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Type accents: teal (default/most common) → coral → amber → teal-mid → coral-mid */
+    /* command=teal (primary), http=coral (network), prompt=amber (LLM), mcp_tool=teal-muted, agent=coral-muted */
+    --type-command: #56b6c2;             /* teal — default, most common */
+    --type-command-dim: rgba(86,182,194,0.16);
+    --type-command-glow: rgba(86,182,194,0.32);
+    --type-http: #e06c75;                /* coral — network/external */
+    --type-http-dim: rgba(224,108,117,0.16);
+    --type-http-glow: rgba(224,108,117,0.32);
+    --type-prompt: #c88f3f;              /* amber — LLM evaluation */
+    --type-prompt-dim: rgba(200,143,63,0.16);
+    --type-prompt-glow: rgba(200,143,63,0.30);
+    --type-mcp: #6fae8b;                 /* teal-green — MCP reuse */
+    --type-mcp-dim: rgba(111,174,139,0.15);
+    --type-mcp-glow: rgba(111,174,139,0.28);
+    --type-agent: #b07cc7;               /* violet — subagent */
+    --type-agent-dim: rgba(176,124,199,0.15);
+    --type-agent-glow: rgba(176,124,199,0.30);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to series assets */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 820px;
+    margin-bottom: 44px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--type-command); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  /* === Main: 5-column comparison grid === */
+  .grid {
+    width: 100%;
+    max-width: 1240px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  /* === Type card === */
+  .card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 18px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(16px);
+    animation: cardEnter 0.6s var(--ease-out-expo) forwards;
+  }
+  .card.t-command {
+    border-color: rgba(86,182,194,0.30);
+    box-shadow: 0 0 26px var(--type-command-dim);
+    animation-delay: 0.12s;
+  }
+  .card.t-http {
+    border-color: rgba(224,108,117,0.26);
+    box-shadow: 0 0 22px var(--type-http-dim);
+    animation-delay: 0.26s;
+  }
+  .card.t-prompt {
+    border-color: rgba(200,143,63,0.26);
+    box-shadow: 0 0 22px var(--type-prompt-dim);
+    animation-delay: 0.40s;
+  }
+  .card.t-mcp {
+    border-color: rgba(111,174,139,0.24);
+    box-shadow: 0 0 22px var(--type-mcp-dim);
+    animation-delay: 0.54s;
+  }
+  .card.t-agent {
+    border-color: rgba(176,124,199,0.24);
+    box-shadow: 0 0 22px var(--type-agent-dim);
+    animation-delay: 0.68s;
+  }
+  @keyframes cardEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Left color stripe (component signature — same as series) */
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 16px; bottom: 16px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .t-command::before { background: var(--type-command); box-shadow: 0 0 8px var(--type-command-glow); }
+  .t-http::before    { background: var(--type-http);    box-shadow: 0 0 8px var(--type-http-glow); }
+  .t-prompt::before  { background: var(--type-prompt);  box-shadow: 0 0 8px var(--type-prompt-glow); }
+  .t-mcp::before     { background: var(--type-mcp);     box-shadow: 0 0 8px var(--type-mcp-glow); }
+  .t-agent::before   { background: var(--type-agent);   box-shadow: 0 0 8px var(--type-agent-glow); }
+
+  /* === Card header: type name + role tag === */
+  .card-head {
+    padding-left: 6px;
+    margin-bottom: 14px;
+  }
+  .type-name {
+    font-family: var(--font-mono);
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  .t-command .type-name { color: var(--type-command); }
+  .t-http    .type-name { color: var(--type-http); }
+  .t-prompt  .type-name { color: var(--type-prompt); }
+  .t-mcp     .type-name { color: var(--type-mcp); }
+  .t-agent   .type-name { color: var(--type-agent); }
+
+  /* Role tag row (default/advanced badge + version badge) */
+  .tag-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .role-tag {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .t-command .role-tag { color: var(--type-command); background: var(--type-command-dim); border-color: rgba(86,182,194,0.40); }
+  .t-http    .role-tag { color: var(--ink-secondary); background: var(--bg-elevated); border-color: var(--border-subtle); }
+  .t-prompt  .role-tag { color: var(--ink-secondary); background: var(--bg-elevated); border-color: var(--border-subtle); }
+  .t-mcp     .role-tag { color: var(--ink-secondary); background: var(--bg-elevated); border-color: var(--border-subtle); }
+  .t-agent   .role-tag { color: var(--ink-secondary); background: var(--bg-elevated); border-color: var(--border-subtle); }
+
+  .ver-badge {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--ink-muted);
+    background: var(--bg-deep);
+    border: 1px solid var(--border-subtle);
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .ver-badge.has-ver {
+    color: var(--ink-primary);
+  }
+  .t-http .ver-badge.has-ver  { border-color: rgba(224,108,117,0.36); }
+  .t-mcp  .ver-badge.has-ver  { border-color: rgba(111,174,139,0.36); }
+
+  /* === Attribute rows === */
+  .attrs {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-left: 6px;
+    flex: 1;
+  }
+  .attr {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .attr-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .attr-value {
+    font-size: 12px;
+    color: var(--ink-secondary);
+    line-height: 1.55;
+  }
+  .attr-value .mono {
+    font-family: var(--font-mono);
+    color: var(--ink-primary);
+    background: var(--bg-elevated);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* Use-case list for "适用场景" */
+  .use-cases {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .use-case {
+    font-size: 11.5px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+    padding-left: 12px;
+    position: relative;
+  }
+  .use-case::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 7px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--ink-muted);
+  }
+  .t-command .use-case::before { background: var(--type-command); opacity: 0.7; }
+  .t-http    .use-case::before { background: var(--type-http);    opacity: 0.7; }
+  .t-prompt  .use-case::before { background: var(--type-prompt);  opacity: 0.7; }
+  .t-mcp     .use-case::before { background: var(--type-mcp);     opacity: 0.7; }
+  .t-agent   .use-case::before { background: var(--type-agent);   opacity: 0.7; }
+
+  /* Divider between attrs */
+  .attr + .attr {
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 40px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+    opacity: 0;
+    animation: legendEnter 0.5s var(--ease-out-expo) 1.0s forwards;
+  }
+  @keyframes legendEnter { to { opacity: 1; } }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.dc { background: var(--type-command); box-shadow: 0 0 6px var(--type-command-dim); }
+  .legend-dot.dh { background: var(--type-http);    box-shadow: 0 0 6px var(--type-http-dim); }
+  .legend-dot.dp { background: var(--type-prompt);  box-shadow: 0 0 6px var(--type-prompt-dim); }
+  .legend-dot.dm { background: var(--type-mcp);     box-shadow: 0 0 6px var(--type-mcp-dim); }
+  .legend-dot.da { background: var(--type-agent);   box-shadow: 0 0 6px var(--type-agent-dim); }
+
+  /* === Decision footer: "何时选哪种" === */
+  .decision {
+    margin-top: 32px;
+    width: 100%;
+    max-width: 1240px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-left: 3px solid var(--type-command);
+    border-radius: var(--radius-md);
+    padding: 22px 26px 20px;
+    opacity: 0;
+    animation: decisionEnter 0.7s var(--ease-out-expo) 1.15s forwards;
+  }
+  @keyframes decisionEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .decision-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .decision-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+  }
+  .decision-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-left: 12px;
+    position: relative;
+  }
+  .decision-cell::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 4px;
+    width: 3px; height: calc(100% - 8px);
+    border-radius: 2px;
+  }
+  .decision-cell.c-command::before { background: var(--type-command); }
+  .decision-cell.c-http::before    { background: var(--type-http); }
+  .decision-cell.c-prompt::before  { background: var(--type-prompt); }
+  .decision-cell.c-mcp::before     { background: var(--type-mcp); }
+  .decision-cell.c-agent::before   { background: var(--type-agent); }
+
+  .decision-when {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .c-command .decision-when { color: var(--type-command); }
+  .c-http    .decision-when { color: var(--type-http); }
+  .c-prompt  .decision-when { color: var(--type-prompt); }
+  .c-mcp     .decision-when { color: var(--type-mcp); }
+  .c-agent   .decision-when { color: var(--type-agent); }
+  .decision-do {
+    font-size: 12px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+  }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 28px;
+    max-width: 760px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--type-command);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    animation: insightEnter 0.7s var(--ease-out-expo) 1.35s forwards;
+  }
+  @keyframes insightEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl.c { color: var(--type-command); }
+  .insight p .hl.h { color: var(--type-http); }
+  .insight p .hl.p { color: var(--type-prompt); }
+  .insight p .hl.m { color: var(--type-mcp); }
+  .insight p .hl.a { color: var(--type-agent); }
+
+  /* === Responsive === */
+  @media (max-width: 1080px) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .card:nth-child(4),
+    .card:nth-child(5) {
+      /* allow row 2 to hold 2; handled by grid auto-flow */
+    }
+  }
+  @media (max-width: 760px) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .decision-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 480px) {
+    body { padding: 28px 14px 48px; }
+    .header h1 { font-size: 19px; }
+    .grid {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .decision-grid {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .card { padding: 16px 16px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Hooks <span class="accent">五类型对比</span></h1>
+  <p>一条 hook 可以用五种不同方式执行——从最简单的本地脚本，到远程 webhook、再到智能 agent。一眼看清各自机制、通信方式与适用场景。</p>
+</div>
+
+<div class="grid">
+
+  <!-- === command (default) === -->
+  <div class="card t-command">
+    <div class="card-head">
+      <div class="type-name">command</div>
+      <div class="tag-row">
+        <span class="role-tag">默认 · 最常用</span>
+        <span class="ver-badge">内置</span>
+      </div>
+    </div>
+    <div class="attrs">
+      <div class="attr">
+        <div class="attr-label">机制</div>
+        <div class="attr-value">执行 <span class="mono">shell 命令</span></div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">通信</div>
+        <div class="attr-value">JSON 经 <span class="mono">stdin/stdout</span>，退出码决定放行/阻断</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">适用场景</div>
+        <div class="use-cases">
+          <div class="use-case">代码校验 / lint</div>
+          <div class="use-case">格式化</div>
+          <div class="use-case">日志记录</div>
+          <div class="use-case">本地自动化脚本</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === http === -->
+  <div class="card t-http">
+    <div class="card-head">
+      <div class="type-name">http</div>
+      <div class="tag-row">
+        <span class="role-tag">进阶</span>
+        <span class="ver-badge has-ver">v2.1.63</span>
+      </div>
+    </div>
+    <div class="attrs">
+      <div class="attr">
+        <div class="attr-label">机制</div>
+        <div class="attr-value">调用 <span class="mono">远程 webhook</span></div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">通信</div>
+        <div class="attr-value">向 URL <span class="mono">POST JSON</span>，接收 JSON 响应</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">适用场景</div>
+        <div class="use-cases">
+          <div class="use-case">外部服务集成</div>
+          <div class="use-case">团队通知</div>
+          <div class="use-case">第三方系统联动</div>
+          <div class="use-case">无需本地环境</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === prompt === -->
+  <div class="card t-prompt">
+    <div class="card-head">
+      <div class="type-name">prompt</div>
+      <div class="tag-row">
+        <span class="role-tag">进阶</span>
+        <span class="ver-badge">内置</span>
+      </div>
+    </div>
+    <div class="attrs">
+      <div class="attr">
+        <div class="attr-label">机制</div>
+        <div class="attr-value"><span class="mono">LLM 求值</span>——Claude 求值 prompt</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">通信</div>
+        <div class="attr-value">返回 <span class="mono">结构化决策</span>（JSON），而非固定退出码</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">适用场景</div>
+        <div class="use-cases">
+          <div class="use-case">Stop / SubagentStop 智能完成检查</div>
+          <div class="use-case">需语义判断的任务</div>
+          <div class="use-case">非规则化的放行逻辑</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === mcp_tool === -->
+  <div class="card t-mcp">
+    <div class="card-head">
+      <div class="type-name">mcp_tool</div>
+      <div class="tag-row">
+        <span class="role-tag">进阶</span>
+        <span class="ver-badge has-ver">v2.1.118</span>
+      </div>
+    </div>
+    <div class="attrs">
+      <div class="attr">
+        <div class="attr-label">机制</div>
+        <div class="attr-value">调用 <span class="mono">已配置的 MCP 工具</span></div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">通信</div>
+        <div class="attr-value">引用 <span class="mono">server + tool</span> 名，参数走 MCP 协议</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">适用场景</div>
+        <div class="use-cases">
+          <div class="use-case">校验逻辑已在某 MCP server</div>
+          <div class="use-case">复用现成工具能力</div>
+          <div class="use-case">避免重写脚本</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === agent === -->
+  <div class="card t-agent">
+    <div class="card-head">
+      <div class="type-name">agent</div>
+      <div class="tag-row">
+        <span class="role-tag">进阶</span>
+        <span class="ver-badge">内置</span>
+      </div>
+    </div>
+    <div class="attrs">
+      <div class="attr">
+        <div class="attr-label">机制</div>
+        <div class="attr-value">启动 <span class="mono">专用 subagent</span> 评估</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">通信</div>
+        <div class="attr-value">可用工具 <span class="mono">多步推理</span>，独立上下文</div>
+      </div>
+      <div class="attr">
+        <div class="attr-label">适用场景</div>
+        <div class="use-cases">
+          <div class="use-case">复杂架构检查</div>
+          <div class="use-case">需调研 + 决策的任务</div>
+          <div class="use-case">深度审查</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot dc"></span> command · 默认</div>
+  <div class="legend-item"><span class="legend-dot dh"></span> http · 网络</div>
+  <div class="legend-item"><span class="legend-dot dp"></span> prompt · 智能判断</div>
+  <div class="legend-item"><span class="legend-dot dm"></span> mcp_tool · 复用</div>
+  <div class="legend-item"><span class="legend-dot da"></span> agent · 多步推理</div>
+</div>
+
+<!-- === Decision row: "何时选哪种" === -->
+<div class="decision">
+  <div class="decision-tag">何时选哪种</div>
+  <div class="decision-grid">
+    <div class="decision-cell c-command">
+      <div class="decision-when">本地脚本</div>
+      <div class="decision-do">规则明确、可在本机跑命令 → 选 command</div>
+    </div>
+    <div class="decision-cell c-http">
+      <div class="decision-when">外部服务</div>
+      <div class="decision-do">要联动远端、团队或第三方 → 选 http</div>
+    </div>
+    <div class="decision-cell c-prompt">
+      <div class="decision-when">智能判断</div>
+      <div class="decision-do">需语义/经验决策而非规则 → 选 prompt</div>
+    </div>
+    <div class="decision-cell c-mcp">
+      <div class="decision-when">复用 MCP</div>
+      <div class="decision-do">逻辑已在某 MCP server → 选 mcp_tool</div>
+    </div>
+    <div class="decision-cell c-agent">
+      <div class="decision-when">复杂多步</div>
+      <div class="decision-do">需调研 + 推理 + 决策 → 选 agent</div>
+    </div>
+  </div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">一句话原则</div>
+  <p>从 <span class="hl c">command</span> 开始——它覆盖绝大多数场景；只有当规则写不进脚本时，才向 <span class="hl h">http</span>（外部）、<span class="hl p">prompt</span>（语义）、<span class="hl m">mcp_tool</span>（复用）、<span class="hl a">agent</span>（多步）外延。能力越强，开销越大。</p>
+</div>
+
+</body>
+</html>

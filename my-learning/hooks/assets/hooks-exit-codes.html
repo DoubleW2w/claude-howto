@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hooks 退出码三态 — Claude Code Hooks</title>
+<style>
+  /* === Design System (verbatim reuse from skills-three-layers.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Exit-code accents: teal=success/continue, coral=blocking, gray=non-blocking */
+    --code-0: #56b6c2;            /* exit 0: teal — success, flow continues */
+    --code-0-dim: rgba(86,182,194,0.16);
+    --code-0-glow: rgba(86,182,194,0.32);
+    --code-2: #e06c75;            /* exit 2: coral — blocking error */
+    --code-2-dim: rgba(224,108,117,0.16);
+    --code-2-glow: rgba(224,108,117,0.32);
+    --code-x: #8895ab;            /* other: ink-secondary — non-blocking error */
+    --code-x-dim: rgba(136,149,171,0.14);
+    --code-x-glow: rgba(136,149,171,0.26);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to skills asset */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 780px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--code-0); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  /* === Main: three exit-code cards === */
+  .main {
+    width: 100%;
+    max-width: 1040px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    align-items: stretch;
+  }
+
+  /* === Exit-code card === */
+  .card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 24px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.35s var(--ease-out-expo),
+                box-shadow 0.35s var(--ease-out-expo),
+                transform 0.35s var(--ease-out-expo);
+    opacity: 0;
+    transform: translateY(16px);
+    animation: cardEnter 0.6s var(--ease-out-expo) forwards;
+    overflow: hidden;
+  }
+  .card.c0 {
+    border-color: rgba(86,182,194,0.30);
+    box-shadow: 0 0 26px var(--code-0-dim);
+    animation-delay: 0.15s;
+  }
+  .card.c2 {
+    border-color: rgba(224,108,117,0.30);
+    box-shadow: 0 0 26px var(--code-2-dim);
+    animation-delay: 0.45s;
+  }
+  .card.cx {
+    border-color: rgba(136,149,171,0.24);
+    box-shadow: 0 0 26px var(--code-x-dim);
+    animation-delay: 0.75s;
+  }
+  @keyframes cardEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Left color stripe (component signature — same as series) */
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 18px; bottom: 18px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .c0::before { background: var(--code-0); box-shadow: 0 0 8px var(--code-0-glow); }
+  .c2::before { background: var(--code-2); box-shadow: 0 0 8px var(--code-2-glow); }
+  .cx::before { background: var(--code-x); box-shadow: 0 0 8px var(--code-x-glow); }
+
+  /* === Big exit-code number === */
+  .code-num {
+    font-family: var(--font-mono);
+    font-size: 64px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    margin: 4px 0 2px;
+    padding-left: 8px;
+  }
+  .code-num .other {
+    font-size: 40px;
+    letter-spacing: -0.02em;
+  }
+  .c0 .code-num { color: var(--code-0); }
+  .c2 .code-num { color: var(--code-2); }
+  .cx .code-num { color: var(--code-x); }
+
+  .code-tag {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    padding-left: 8px;
+  }
+
+  /* === Meaning label === */
+  .meaning {
+    padding-left: 8px;
+    margin-bottom: 16px;
+  }
+  .meaning-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .meaning-text {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .c0 .meaning-text { color: var(--code-0); }
+  .c2 .meaning-text { color: var(--code-2); }
+  .cx .meaning-text { color: var(--code-x); }
+
+  /* === Behavior row === */
+  .behavior {
+    padding: 14px 14px 14px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    margin-bottom: 18px;
+  }
+  .behavior-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .behavior-line {
+    font-size: 12.5px;
+    color: var(--ink-primary);
+    line-height: 1.6;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .behavior-line + .behavior-line { margin-top: 7px; }
+  .behavior-line .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 7px;
+    background: var(--ink-muted);
+  }
+  .behavior-line .mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-secondary);
+    background: var(--bg-deep);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+  }
+  .c0 .behavior-line .mono { color: var(--code-0); }
+  .c2 .behavior-line .mono { color: var(--code-2); }
+  .cx .behavior-line .mono { color: var(--code-x); }
+
+  /* === Flow impact visualization === */
+  .flow {
+    margin-top: auto;
+    padding-top: 4px;
+  }
+  .flow-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-left: 8px;
+  }
+  .flow-vis {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-deep);
+    padding: 16px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    min-height: 92px;
+    opacity: 0;
+    animation: flowEnter 0.6s var(--ease-out-expo) forwards;
+  }
+  .c0 .flow-vis { animation-delay: 1.05s; }
+  .c2 .flow-vis { animation-delay: 1.20s; }
+  .cx .flow-vis { animation-delay: 1.35s; }
+  @keyframes flowEnter {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  /* Flow node — the operation being gated */
+  .flow-node {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-secondary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 8px 11px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  /* Flow arrow */
+  .flow-arrow {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .c0 .flow-arrow { color: var(--code-0); }
+  .c2 .flow-arrow { color: var(--code-2); }
+  .cx .flow-arrow { color: var(--code-x); }
+
+  /* Flow outcome — the result glyph + label */
+  .flow-outcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .flow-glyph {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1;
+    border: 1.5px solid currentColor;
+  }
+  .c0 .flow-glyph { color: var(--code-0); background: var(--code-0-dim); box-shadow: 0 0 14px var(--code-0-dim); }
+  .c2 .flow-glyph { color: var(--code-2); background: var(--code-2-dim); box-shadow: 0 0 14px var(--code-2-dim); }
+  .cx .flow-glyph { color: var(--code-x); background: var(--code-x-dim); box-shadow: 0 0 14px var(--code-x-dim); }
+
+  .flow-result {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-align: center;
+    line-height: 1.3;
+  }
+  .c0 .flow-result { color: var(--code-0); }
+  .c2 .flow-result { color: var(--code-2); }
+  .cx .flow-result { color: var(--code-x); }
+
+  /* Warning badge for the "other" non-blocking case */
+  .flow-warn {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .flow-warn::before {
+    content: '!';
+    font-family: var(--font-mono);
+    font-size: 10px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--code-x);
+    color: var(--code-x);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  /* Blocked stamp for exit 2 */
+  .blocked-stamp {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--code-2);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid rgba(224,108,117,0.45);
+    background: rgba(224,108,117,0.08);
+    padding: 4px 9px;
+    border-radius: var(--radius-sm);
+    text-decoration: line-through;
+    text-decoration-color: rgba(224,108,117,0.6);
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 36px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 26px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+    opacity: 0;
+    animation: legendEnter 0.5s var(--ease-out-expo) 1.5s forwards;
+  }
+  @keyframes legendEnter { to { opacity: 1; } }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.d0 { background: var(--code-0); box-shadow: 0 0 6px var(--code-0-dim); }
+  .legend-dot.d2 { background: var(--code-2); box-shadow: 0 0 6px var(--code-2-dim); }
+  .legend-dot.dx { background: var(--code-x); box-shadow: 0 0 6px var(--code-x-dim); }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 28px;
+    max-width: 820px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--code-0);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    animation: insightEnter 0.7s var(--ease-out-expo) 1.65s forwards;
+  }
+  @keyframes insightEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl.t { color: var(--code-0); }
+  .insight p .hl.c { color: var(--code-2); }
+  .insight p .hl.g { color: var(--code-x); }
+
+  /* === Responsive === */
+  @media (max-width: 860px) {
+    .main {
+      grid-template-columns: 1fr;
+      gap: 20px;
+      max-width: 520px;
+    }
+    .code-num { font-size: 52px; }
+    .code-num .other { font-size: 34px; }
+  }
+  @media (max-width: 520px) {
+    body { padding: 28px 14px 48px; }
+    .header h1 { font-size: 19px; }
+    .card { padding: 20px 18px 18px; }
+    .code-num { font-size: 46px; }
+    .code-num .other { font-size: 30px; }
+    .flow-vis { gap: 10px; min-height: 84px; padding: 14px 8px; }
+    .flow-node { font-size: 9.5px; padding: 7px 9px; }
+  }
+
+  /* === Reduced motion === */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Hooks <span class="accent">退出码三态</span></h1>
+  <p>退出码是 hook 控制 Claude 流程的核心手段——三个值，三种结局：放行、阻断、或带警告放行。</p>
+</div>
+
+<div class="main">
+
+  <!-- === Exit 0: success === -->
+  <div class="card c0">
+    <div class="code-num">0</div>
+    <div class="code-tag">exit code</div>
+
+    <div class="meaning">
+      <div class="meaning-label">含义</div>
+      <div class="meaning-text">成功</div>
+    </div>
+
+    <div class="behavior">
+      <div class="behavior-label">行为</div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-0)"></span><span>流程<span style="color:var(--code-0)">继续</span></span></div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-0)"></span><span>解析 <span class="mono">stdout</span> 为 JSON（若有）</span></div>
+    </div>
+
+    <div class="flow">
+      <div class="flow-label">对流程的影响</div>
+      <div class="flow-vis">
+        <div class="flow-node">操作</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-outcome">
+          <div class="flow-glyph">✓</div>
+          <div class="flow-result">继续执行</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Exit 2: blocking error === -->
+  <div class="card c2">
+    <div class="code-num">2</div>
+    <div class="code-tag">exit code</div>
+
+    <div class="meaning">
+      <div class="meaning-label">含义</div>
+      <div class="meaning-text">阻断性错误</div>
+    </div>
+
+    <div class="behavior">
+      <div class="behavior-label">行为</div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-2)"></span><span>流程<span style="color:var(--code-2)">阻断</span>，操作不执行</span></div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-2)"></span><span><span class="mono">stderr</span> 作为错误展示给用户</span></div>
+    </div>
+
+    <div class="flow">
+      <div class="flow-label">对流程的影响</div>
+      <div class="flow-vis">
+        <div class="flow-node">操作</div>
+        <span class="flow-arrow">⊘</span>
+        <div class="flow-outcome">
+          <div class="flow-glyph">✕</div>
+          <div class="flow-result">已被阻断</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- === Other (non-0 non-2): non-blocking error === -->
+  <div class="card cx">
+    <div class="code-num"><span class="other">其他</span></div>
+    <div class="code-tag">非 0 非 2</div>
+
+    <div class="meaning">
+      <div class="meaning-label">含义</div>
+      <div class="meaning-text">非阻断性错误</div>
+    </div>
+
+    <div class="behavior">
+      <div class="behavior-label">行为</div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-x)"></span><span>流程<span style="color:var(--code-x)">继续</span></span></div>
+      <div class="behavior-line"><span class="dot" style="background:var(--code-x)"></span><span><span class="mono">stderr</span> 仅在 <span class="mono">verbose</span> 模式展示</span></div>
+    </div>
+
+    <div class="flow">
+      <div class="flow-label">对流程的影响</div>
+      <div class="flow-vis">
+        <div class="flow-node">操作</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-outcome">
+          <div class="flow-glyph">!</div>
+          <div class="flow-result">继续 + 警告</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d0"></span> 0 · 成功 · 放行继续</div>
+  <div class="legend-item"><span class="legend-dot d2"></span> 2 · 阻断性错误 · 拦下操作</div>
+  <div class="legend-item"><span class="legend-dot dx"></span> 其他 · 非阻断性错误 · 静默放行</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">为什么退出码是 hook 的核心</div>
+  <p>hook 是一条 shell 命令，而<span class="hl t">退出码</span>就是它对 Claude 说的「话」：<span class="hl t">0</span> 是绿灯，<span class="hl c">2</span> 是红灯，<span class="hl g">其他</span> 是黄灯——不停车，但记一笔。一个数字，决定了流程走不走。</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hooks 六大事件时序 — Claude Code Hooks</title>
+<style>
+  /* === Design System (verbatim reuse from skills-three-layers.html / hooks-config-structure.html) === */
+  /* Philosophy: technical precision, progressive disclosure, monospace rhythm */
+  /* Tone: calm, authoritative, developer-tool aesthetics */
+  :root {
+    --bg-deep: #0a0e14;
+    --bg-surface: #131820;
+    --bg-elevated: #1a1f2e;
+    --border-subtle: #252b38;
+    --border-active: #3a4358;
+    --ink-primary: #e2e6ed;
+    --ink-secondary: #8895ab;
+    --ink-muted: #4e5a6e;
+
+    /* Event accents: teal = session boundary / amber = can-block checkpoint / coral = response boundary */
+    --ev-start: #56b6c2;              /* SessionStart: teal — session begin */
+    --ev-start-dim: rgba(86,182,194,0.16);
+    --ev-start-glow: rgba(86,182,194,0.32);
+    --ev-amber: #c88f3f;              /* UserPromptSubmit + PreToolUse: amber — blocking checkpoints */
+    --ev-amber-dim: rgba(200,143,63,0.16);
+    --ev-amber-glow: rgba(200,143,63,0.30);
+    --ev-coral: #e06c75;              /* PostToolUse + Stop: coral — post/response */
+    --ev-coral-dim: rgba(224,108,117,0.16);
+    --ev-coral-glow: rgba(224,108,117,0.32);
+    --ev-end: #4e5a6e;                /* SessionEnd: muted gray — terminal cleanup */
+    --ev-end-dim: rgba(78,90,110,0.20);
+    --ev-end-glow: rgba(78,90,110,0.30);
+
+    --grid-color: rgba(255,255,255,0.025);
+    --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 14px;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    /* Subtle grid texture — identical to series assets */
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    padding: 40px 24px 64px;
+  }
+
+  /* === Header === */
+  .header {
+    text-align: center;
+    max-width: 760px;
+    margin-bottom: 40px;
+  }
+  .header h1 {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+    margin-bottom: 10px;
+  }
+  .header h1 .accent { color: var(--ev-start); }
+  .header p {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    line-height: 1.6;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* === Timeline shell === */
+  .timeline-wrap {
+    width: 100%;
+    max-width: 1080px;
+    position: relative;
+  }
+
+  /* === The horizontal track (desktop) === */
+  .timeline {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    padding: 28px 26px 30px;
+    opacity: 0;
+    transform: translateY(14px);
+    animation: layerEnter 0.6s var(--ease-out-expo) 0.1s forwards;
+  }
+  @keyframes layerEnter {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* === The track line === */
+  .track {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+  .track::before {
+    /* baseline rail */
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      var(--ev-start) 0%,
+      var(--ev-start) 6%,
+      var(--border-active) 8%,
+      var(--border-active) 14%,
+      var(--ev-amber) 16%,
+      var(--ev-amber) 22%,
+      var(--border-active) 24%,
+      var(--ev-coral) 50%,
+      var(--ev-amber) 60%,
+      var(--border-active) 70%,
+      var(--ev-coral) 72%,
+      var(--ev-coral) 78%,
+      var(--border-active) 80%,
+      var(--ev-end) 92%,
+      var(--ev-end) 100%
+    );
+    opacity: 0.45;
+    border-radius: 1px;
+    transform: translateY(-1px);
+    z-index: 0;
+  }
+
+  /* === Segment: a logical phase on the track === */
+  .segment {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 1;
+  }
+  /* gap / "user input" spacer segments — no event */
+  .segment.gap {
+    flex: 0.4 1 0;
+    min-width: 24px;
+  }
+  /* tool-loop segments — wider */
+  .segment.loop {
+    flex: 2.2 1 0;
+  }
+
+  /* === Event node === */
+  .node {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+  .node-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-deep);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 2;
+    opacity: 0;
+    animation: dotPulse 0.5s var(--ease-out-expo) forwards;
+  }
+  @keyframes dotPulse {
+    from { opacity: 0; transform: scale(0.4); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .node.s-start  .node-dot { background: var(--ev-start); box-shadow: 0 0 0 4px var(--ev-start-dim), 0 0 14px var(--ev-start-glow); animation-delay: 0.35s; }
+  .node.s-submit .node-dot { background: var(--ev-amber); box-shadow: 0 0 0 4px var(--ev-amber-dim), 0 0 14px var(--ev-amber-glow); animation-delay: 0.85s; }
+  .node.s-pre    .node-dot { background: var(--ev-amber); box-shadow: 0 0 0 4px var(--ev-amber-dim), 0 0 14px var(--ev-amber-glow); animation-delay: 1.30s; }
+  .node.s-post   .node-dot { background: var(--ev-coral); box-shadow: 0 0 0 4px var(--ev-coral-dim), 0 0 14px var(--ev-coral-glow); animation-delay: 1.55s; }
+  .node.s-stop   .node-dot { background: var(--ev-coral); box-shadow: 0 0 0 4px var(--ev-coral-dim), 0 0 14px var(--ev-coral-glow); animation-delay: 2.05s; }
+  .node.s-end    .node-dot { background: var(--ev-end); box-shadow: 0 0 0 4px var(--ev-end-dim), 0 0 14px var(--ev-end-glow); animation-delay: 2.45s; }
+
+  /* glow sweep on load */
+  .node-dot::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    opacity: 0;
+  }
+  .node.s-start  .node-dot::after { color: var(--ev-start); animation: ring 1.6s var(--ease-out-expo) 0.35s infinite; }
+  .node.s-submit .node-dot::after { color: var(--ev-amber); animation: ring 1.6s var(--ease-out-expo) 0.85s infinite; }
+  .node.s-pre    .node-dot::after { color: var(--ev-amber); animation: ring 1.6s var(--ease-out-expo) 1.30s infinite; }
+  .node.s-post   .node-dot::after { color: var(--ev-coral); animation: ring 1.6s var(--ease-out-expo) 1.55s infinite; }
+  .node.s-stop   .node-dot::after { color: var(--ev-coral); animation: ring 1.6s var(--ease-out-expo) 2.05s infinite; }
+  .node.s-end    .node-dot::after { color: var(--ev-end); animation: ring 1.6s var(--ease-out-expo) 2.45s infinite; }
+  @keyframes ring {
+    0%   { opacity: 0.6; transform: scale(0.9); }
+    100% { opacity: 0; transform: scale(2.4); }
+  }
+
+  /* === Event card (alternates above/below the rail) === */
+  .card {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 150px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    padding: 11px 12px 12px;
+    opacity: 0;
+    animation: cardEnter 0.55s var(--ease-out-expo) forwards;
+  }
+  @keyframes cardEnter {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .node.s-start  .card { animation-delay: 0.50s; }
+  .node.s-submit .card { animation-delay: 1.00s; }
+  .node.s-pre    .card { animation-delay: 1.45s; }
+  .node.s-post   .card { animation-delay: 1.70s; }
+  .node.s-stop   .card { animation-delay: 2.20s; }
+  .node.s-end    .card { animation-delay: 2.60s; }
+
+  /* position: above / below the rail */
+  .card.above { bottom: calc(50% + 18px); }
+  .card.below { top: calc(50% + 18px); }
+
+  /* left color stripe — series signature */
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 10px; bottom: 10px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+  }
+  .node.s-start  .card { border-color: rgba(86,182,194,0.30); box-shadow: 0 0 22px var(--ev-start-dim); }
+  .node.s-start  .card::before { background: var(--ev-start); box-shadow: 0 0 8px var(--ev-start-glow); }
+  .node.s-submit .card { border-color: rgba(200,143,63,0.28); box-shadow: 0 0 22px var(--ev-amber-dim); }
+  .node.s-submit .card::before { background: var(--ev-amber); box-shadow: 0 0 8px var(--ev-amber-glow); }
+  .node.s-pre    .card { border-color: rgba(200,143,63,0.28); box-shadow: 0 0 22px var(--ev-amber-dim); }
+  .node.s-pre    .card::before { background: var(--ev-amber); box-shadow: 0 0 8px var(--ev-amber-glow); }
+  .node.s-post   .card { border-color: rgba(224,108,117,0.26); box-shadow: 0 0 22px var(--ev-coral-dim); }
+  .node.s-post   .card::before { background: var(--ev-coral); box-shadow: 0 0 8px var(--ev-coral-glow); }
+  .node.s-stop   .card { border-color: rgba(224,108,117,0.26); box-shadow: 0 0 22px var(--ev-coral-dim); }
+  .node.s-stop   .card::before { background: var(--ev-coral); box-shadow: 0 0 8px var(--ev-coral-glow); }
+  .node.s-end    .card { border-color: rgba(78,90,110,0.30); box-shadow: 0 0 18px var(--ev-end-dim); }
+  .node.s-end    .card::before { background: var(--ev-end); box-shadow: 0 0 8px var(--ev-end-glow); }
+
+  /* card content */
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 7px;
+    padding-left: 6px;
+  }
+  .card-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+  }
+  .node.s-start  .card-name { color: var(--ev-start); }
+  .node.s-submit .card-name { color: var(--ev-amber); }
+  .node.s-pre    .card-name { color: var(--ev-amber); }
+  .node.s-post   .card-name { color: var(--ev-coral); }
+  .node.s-stop   .card-name { color: var(--ev-coral); }
+  .node.s-end    .card-name { color: var(--ink-secondary); }
+
+  /* can-block / no-block tag */
+  .block-tag {
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .block-tag.can {
+    color: var(--ev-amber);
+    background: var(--ev-amber-dim);
+  }
+  .block-tag.no {
+    color: var(--ink-muted);
+    background: var(--bg-elevated);
+  }
+  .node.s-stop .block-tag.can { color: var(--ev-coral); background: var(--ev-coral-dim); }
+
+  .card-desc {
+    font-size: 10.5px;
+    color: var(--ink-secondary);
+    line-height: 1.5;
+    padding: 0 4px 2px 6px;
+  }
+  .card-matcher {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    line-height: 1.45;
+    padding: 5px 6px 0;
+    letter-spacing: 0.02em;
+    border-top: 1px solid var(--border-subtle);
+    margin-top: 6px;
+  }
+  .card-matcher .lbl {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 2px;
+    opacity: 0.7;
+  }
+  .card-matcher code {
+    color: var(--ink-secondary);
+    background: var(--bg-elevated);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    font-size: 8.5px;
+  }
+
+  /* === Gap labels (user input / idle) === */
+  .gap-label {
+    position: absolute;
+    left: 50%;
+    top: calc(50% + 4px);
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    opacity: 0;
+    animation: gapEnter 0.5s var(--ease-out-expo) 0.7s forwards;
+  }
+  @keyframes gapEnter { to { opacity: 1; } }
+
+  /* === Tool-loop region highlight === */
+  .loop-region {
+    position: relative;
+    border: 1px dashed var(--border-active);
+    border-radius: var(--radius-md);
+    background: rgba(200,143,63,0.04);
+    margin: 0 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 14px 8px;
+    opacity: 0;
+    animation: loopEnter 0.6s var(--ease-out-expo) 1.1s forwards;
+  }
+  @keyframes loopEnter { to { opacity: 1; } }
+  .loop-region::before {
+    /* ↻ loop badge */
+    content: '↻';
+    position: absolute;
+    top: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ev-amber);
+    background: var(--bg-surface);
+    padding: 0 8px;
+    line-height: 1;
+  }
+  .loop-region::after {
+    content: 'TOOL LOOP';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.18em;
+    color: var(--ev-amber);
+    background: var(--bg-surface);
+    padding: 0 8px;
+  }
+  .loop-inner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    justify-content: center;
+  }
+  .loop-step {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
+    text-align: center;
+    line-height: 1.3;
+  }
+  .loop-step.exec {
+    color: var(--ink-secondary);
+    padding: 4px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+  }
+  .loop-arr {
+    color: var(--ink-muted);
+    font-size: 12px;
+  }
+
+  /* === Legend === */
+  .legend {
+    margin-top: 30px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-muted);
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    justify-content: center;
+    letter-spacing: 0.03em;
+    opacity: 0;
+    animation: legendEnter 0.5s var(--ease-out-expo) 2.0s forwards;
+  }
+  @keyframes legendEnter { to { opacity: 1; } }
+  .legend-item { display: flex; align-items: center; gap: 7px; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .legend-dot.d-start { background: var(--ev-start); box-shadow: 0 0 6px var(--ev-start-dim); }
+  .legend-dot.d-amber { background: var(--ev-amber); box-shadow: 0 0 6px var(--ev-amber-dim); }
+  .legend-dot.d-coral { background: var(--ev-coral); box-shadow: 0 0 6px var(--ev-coral-dim); }
+  .legend-dot.d-end   { background: var(--ev-end);   box-shadow: 0 0 6px var(--ev-end-dim); }
+
+  /* === Insight footer === */
+  .insight {
+    margin-top: 28px;
+    max-width: 760px;
+    text-align: center;
+    padding: 22px 28px;
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid var(--ev-amber);
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    opacity: 0;
+    animation: insightEnter 0.7s var(--ease-out-expo) 2.3s forwards;
+  }
+  @keyframes insightEnter {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .insight-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-muted);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .insight p {
+    font-size: 14px;
+    color: var(--ink-primary);
+    line-height: 1.65;
+  }
+  .insight p .hl {
+    color: var(--ev-amber);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .insight p .hl-coral {
+    color: var(--ev-coral);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+
+  /* === Responsive: timeline turns vertical on narrow screens === */
+  @media (max-width: 920px) {
+    .timeline { padding: 24px 18px 26px; }
+    .track { flex-direction: column; gap: 10px; }
+    .track::before {
+      left: 22px; right: auto;
+      top: 14px; bottom: 14px;
+      width: 2px; height: auto;
+      background: linear-gradient(
+        to bottom,
+        var(--ev-start) 0%, var(--ev-start) 4%,
+        var(--border-active) 6%, var(--border-active) 12%,
+        var(--ev-amber) 14%, var(--ev-amber) 22%,
+        var(--border-active) 24%,
+        var(--ev-coral) 50%, var(--ev-amber) 60%, var(--border-active) 68%,
+        var(--ev-coral) 72%, var(--ev-coral) 78%,
+        var(--border-active) 80%,
+        var(--ev-end) 92%, var(--ev-end) 100%
+      );
+      transform: none;
+    }
+    .segment {
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-start;
+      padding-left: 44px;
+      gap: 0;
+      min-height: 0;
+    }
+    .segment.gap { min-height: 8px; flex: none; }
+    .segment.loop { flex-direction: column; align-items: stretch; padding-left: 44px; }
+    .loop-region { margin: 6px 0; flex-direction: row; }
+    .node { flex-direction: row; align-items: center; width: auto; }
+    .node-dot { width: 12px; height: 12px; position: absolute; left: 16px; }
+    .card {
+      position: relative;
+      left: auto;
+      transform: none;
+      width: auto;
+      max-width: 360px;
+      flex: 1;
+    }
+    .card.above, .card.below { top: auto; bottom: auto; }
+    .gap-label {
+      position: relative;
+      left: auto; top: auto;
+      transform: none;
+    }
+    .loop-region::before { top: -9px; }
+  }
+  @media (max-width: 520px) {
+    body { padding: 28px 14px 48px; }
+    .header h1 { font-size: 19px; }
+    .timeline { padding: 20px 12px 22px; }
+    .track { left: 0; }
+    .track::before { left: 16px; }
+    .segment { padding-left: 32px; }
+    .segment.loop { padding-left: 32px; }
+    .node-dot { left: 11px; }
+    .card { padding: 9px 10px 10px; }
+    .card-desc { font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Hooks <span class="accent">六大事件时序</span></h1>
+  <p>六个高频事件锚在会话生命周期的不同位置——看懂每个何时触发、哪些是阻断点，就懂了 hook 在哪一道关口拦截。</p>
+</div>
+
+<div class="timeline-wrap">
+  <div class="timeline">
+    <div class="track">
+
+      <!-- 1. SessionStart -->
+      <div class="segment">
+        <div class="node s-start">
+          <span class="node-dot"></span>
+          <div class="card above">
+            <div class="card-head">
+              <span class="card-name">SessionStart</span>
+              <span class="block-tag no">不阻断</span>
+            </div>
+            <div class="card-desc">会话开始 / 恢复时触发，做环境初始化。</div>
+            <div class="card-matcher">
+              <span class="lbl">matcher</span>
+              <code>startup</code> · <code>resume</code> · <code>clear</code> · <code>compact</code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- gap: user input -->
+      <div class="segment gap">
+        <span class="gap-label">用户输入…</span>
+      </div>
+
+      <!-- 2. UserPromptSubmit -->
+      <div class="segment">
+        <div class="node s-submit">
+          <span class="node-dot"></span>
+          <div class="card below">
+            <div class="card-head">
+              <span class="card-name">UserPromptSubmit</span>
+              <span class="block-tag can">能阻断</span>
+            </div>
+            <div class="card-desc">用户提交 prompt 时触发，可校验、改写或拦截输入。</div>
+            <div class="card-matcher">
+              <span class="lbl">matcher</span>
+              无（按 prompt 内容匹配）
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3-4. Tool loop: PreToolUse → exec → PostToolUse -->
+      <div class="segment loop">
+        <div class="loop-region">
+          <div class="loop-inner">
+            <!-- PreToolUse -->
+            <div class="node s-pre">
+              <span class="node-dot"></span>
+              <div class="card above" style="bottom: calc(50% + 28px);">
+                <div class="card-head">
+                  <span class="card-name">PreToolUse</span>
+                  <span class="block-tag can">能阻断</span>
+                </div>
+                <div class="card-desc">工具执行前触发，可 allow / deny / ask。</div>
+                <div class="card-matcher">
+                  <span class="lbl">matcher</span>
+                  <code>Edit</code> · <code>Write</code> · <code>Bash</code>
+                </div>
+              </div>
+            </div>
+
+            <span class="loop-arr">→</span>
+
+            <!-- tool execution -->
+            <div class="loop-step exec">工具执行</div>
+
+            <span class="loop-arr">→</span>
+
+            <!-- PostToolUse -->
+            <div class="node s-post">
+              <span class="node-dot"></span>
+              <div class="card below" style="top: calc(50% + 28px);">
+                <div class="card-head">
+                  <span class="card-name">PostToolUse</span>
+                  <span class="block-tag no">不阻断</span>
+                </div>
+                <div class="card-desc">工具执行后触发，做反馈 / 检查 / 通知。</div>
+                <div class="card-matcher">
+                  <span class="lbl">matcher</span>
+                  <code>Edit</code> · <code>Write</code> · <code>Bash</code>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Stop -->
+      <div class="segment">
+        <div class="node s-stop">
+          <span class="node-dot"></span>
+          <div class="card above">
+            <div class="card-head">
+              <span class="card-name">Stop</span>
+              <span class="block-tag can">能阻断</span>
+            </div>
+            <div class="card-desc">Claude 完成响应时触发，可做任务完成检查或继续。</div>
+            <div class="card-matcher">
+              <span class="lbl">matcher</span>
+              无
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- gap: idle -->
+      <div class="segment gap">
+        <span class="gap-label">…</span>
+      </div>
+
+      <!-- 6. SessionEnd -->
+      <div class="segment">
+        <div class="node s-end">
+          <span class="node-dot"></span>
+          <div class="card below">
+            <div class="card-head">
+              <span class="card-name">SessionEnd</span>
+              <span class="block-tag no">不阻断</span>
+            </div>
+            <div class="card-desc">会话终止时触发，做清理 / 日志 / 收尾。</div>
+            <div class="card-matcher">
+              <span class="lbl">matcher</span>
+              无
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-dot d-start"></span> 会话边界 · 不阻断</div>
+  <div class="legend-item"><span class="legend-dot d-amber"></span> 阻断关口 · 能拦截</div>
+  <div class="legend-item"><span class="legend-dot d-coral"></span> 响应 / 工具后 · 反馈</div>
+  <div class="legend-item"><span class="legend-dot d-end"></span> 会话终止 · 清理</div>
+</div>
+
+<div class="insight">
+  <div class="insight-tag">关键点睛</div>
+  <p>三个事件能<span class="hl">阻断</span>——<span class="hl">UserPromptSubmit</span>（拦截输入）、<span class="hl">PreToolUse</span>（拦截工具）、<span class="hl">Stop</span>（拦截结束）。<span class="hl-coral">PostToolUse</span> 只读反馈、不阻断。会话两端的 <span class="hl">SessionStart</span> / SessionEnd 永远放行。</p>
+</div>
+
+</body>
+</html>
